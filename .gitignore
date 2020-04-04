@@ -3,3 +3,4 @@ dgm_for_text_data/
 .vscode/settings.json
 project1/__pycache__/tokenizers.cpython-37.pyc
 project1/__pycache__/tokenizers.cpython-38.pyc
+*.pyc
