@@ -9,7 +9,7 @@ class RNNLM(nn.Module):
         embedding_size: int,
         hidden_size: int,
     ):
-        super().__init__()
+        super(RNN, self).__init__()
 
         self.vocab_size: int = vocab_size
         self.hidden_size: int = hidden_size
