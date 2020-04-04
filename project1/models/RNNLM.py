@@ -19,7 +19,7 @@ class RNNLM(nn.Module):
         self.embedding: nn.Embedding = nn.Embedding(vocab_size, embedding_size)
         self.rnn: nn.GRU = nn.GRUCell(embedding_size, hidden_size)
         self.fc1: nn.Linear = nn.Linear(hidden_size, vocab_size)
-
+   
         self.out: nn.Softmax = nn.Softmax(dim=-1)
 
     def forward(self, x: torch.Tensor, hidden: torch.Tensor):
