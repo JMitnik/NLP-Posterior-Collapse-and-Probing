@@ -9,7 +9,7 @@ class RNNLM(nn.Module):
         embedding_size: int,
         hidden_size: int,
     ):
-        super(RNN, self).__init__()
+        super().__init__()
 
         self.vocab_size: int = vocab_size
         self.hidden_size: int = hidden_size
@@ -20,7 +20,7 @@ class RNNLM(nn.Module):
         self.rnn: nn.GRU = nn.GRUCell(embedding_size, hidden_size)
         self.fc1: nn.Linear = nn.Linear(hidden_size, vocab_size)
 
-        self.out: nn.Softmax = nn.Softmax(0)
+        self.out: nn.Softmax = nn.Softmax(dim=-1)
 
     def forward(self, x: torch.Tensor, hidden: torch.Tensor):
         """
@@ -43,6 +43,7 @@ class RNNLM(nn.Module):
 
         # Classify by passing into fc-layer, and activate
         classification = self.fc1(hidden)
+      
         out = self.out(classification)
 
         # Return classification and hidden as state up til now
