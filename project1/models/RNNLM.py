@@ -17,12 +17,12 @@ class RNNLM(nn.Module):
 
         # Layers
         self.embedding: nn.Embedding = nn.Embedding(vocab_size, embedding_size)
-        self.rnn: nn.GRU = nn.GRUCell(embedding_size, hidden_size)
+        self.rnn: nn.GRU = nn.GRU(embedding_size, hidden_size, batch_first=True)
         self.fc1: nn.Linear = nn.Linear(hidden_size, vocab_size)
    
         self.out: nn.Softmax = nn.Softmax(dim=-1)
 
-    def forward(self, x: torch.Tensor, hidden: torch.Tensor):
+    def forward(self, x: torch.Tensor):
         """
         Given a sub-sentence, we predict the next word that follows.
 
@@ -37,17 +37,17 @@ class RNNLM(nn.Module):
         embeddings: torch.Tensor = self.embedding(x)
 
         # Pass embeddings through rnn
-        hidden = self.rnn(embeddings, hidden)
+        states, last = self.rnn(embeddings)
 
         # TODO: Confirm if RELU must be put here
 
         # Classify by passing into fc-layer, and activate
-        classification = self.fc1(hidden)
+        classification = self.fc1(states)
       
         out = self.out(classification)
 
         # Return classification and hidden as state up til now
-        return out, hidden
+        return out
 
     def init_hidden(self, batch):
         return torch.zeros(batch.shape[0], self.hidden_size)
