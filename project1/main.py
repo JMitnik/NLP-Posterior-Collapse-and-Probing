@@ -29,13 +29,15 @@ from torch.utils.tensorboard import SummaryWriter
 # %%
 
 config = Config(
+    batch_size=16,
     embedding_size=50,
     hidden_size=50,
-    vocab_size=50,
-    nr_epochs=5,
+    vocab_size=10000,
+    nr_epochs=50,
     train_path = '/data/02-21.10way.clean',
     valid_path = '/data/22.auto.clean',
-    test_path  = '/data/23.auto.clean'
+    test_path  = '/data/23.auto.clean',
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
 )
 
 # %% [markdown]
@@ -90,11 +92,8 @@ test_sents = [convert_to_sentence(l) for l in filereader(config.test_path)]
 # %%
 from tokenizers import WordTokenizer
 
-# How big we want our vocabulary to be
-vocab_size = 10000
-
 # Creating and train our tokenizer. We want a relatively small vocabulary of 10000 words. Credits to the NLP2 team for creating this tokenizer.
-tokenizer = WordTokenizer(train_sents, max_vocab_size=vocab_size)
+tokenizer = WordTokenizer(train_sents, max_vocab_size=config.vocab_size)
 
 # We check if the tokenizer en- and decodes our sentences correctly. Just look at the top-5 sentences in our training set.
 for sentence in train_sents[:5]:
@@ -170,7 +169,7 @@ def padded_collate(batch: list):
 # We want to test if our data loader works, so we create one of our test set with a tiny batch size of 2. From to batches, we print the output.
 
 # %%
-train_loader = DataLoader(train_set, batch_size=2, shuffle=False, collate_fn=padded_collate)
+train_loader = DataLoader(train_set, batch_size=config.batch_size, shuffle=False, collate_fn=padded_collate)
 
 # Small test for a data loader
 for di, d in enumerate(train_loader):
@@ -188,32 +187,55 @@ for di, d in enumerate(train_loader):
 def train_on_batch(model: RNNLM, optim: torch.optim.Optimizer, input_batch: torch.Tensor):
     optim.zero_grad()
 
-    # Current assumption: to not predict past final token, we dont include the EOS tag in the input
-    output = model(input_batch[:, 0:-1])
+    inp = input_batch[:, 0:-1].to(config.device)
+
+    # Current assumption: to not predikct past final token, we dont include the EOS tag in the input
+    output = model(inp)
 
     # One hot target and shift by one (so first word matches second token)
     # target = torch.nn.functional.one_hot(input_tensor, num_classes=vocab_size)
-    target = input_batch[:, 1:]
+    target = input_batch[:, 1:].to(config.device)
 
     # Calc loss and perform backprop
-    loss = criterion(output.reshape(-1, vocab_size), target.reshape(-1, vocab_size))
+    loss = criterion(output.reshape(-1, config.vocab_size), target.reshape(-1))
     loss.backward()
 
     optim.step()
     return loss
 
 # Define our model, optimizer and loss function
-rnn_lm = RNNLM(config.vocab_size, config.embedding_size, config.hidden_size)
+rnn_lm = RNNLM(config.vocab_size, config.embedding_size, config.hidden_size).to(config.device)
 criterion = nn.CrossEntropyLoss(ignore_index=0)
 optim = torch.optim.Adam(rnn_lm.parameters())
 
 # Start training
+training_writer = SummaryWriter()
+
 for epoch in range(config.nr_epochs):
     for train_batch in train_loader:
         loss = train_on_batch(rnn_lm, optim, train_batch)
         perplexity = torch.log(loss)
 
-        utils.store_training_results(writer, loss, perplexity, epoch)
+        # TODO: Improve training results, log also on and across epoch
+        utils.store_training_results(training_writer, loss, perplexity, epoch)
+
+# %%
+def impute_next_word(model, sentence):
+    inp = torch.tensor(tokenizer.encode(sentence, add_special_tokens=True)).to(config.device)
+    inp = inp.unsqueeze(0) # Ensures we pass a 1(=batch-dimension) x sen-length vector
+
+    pred = model(inp).cpu().detach()
+
+    # Get prediction for last token
+    last_pred = [pred[:, -1, :].argmax().item()]
+
+    # Decode prediction
+    output = tokenizer.decode(last_pred)
+    return output
+
+# TODO: Shitty results, hmm
+impute_next_word(rnn_lm, 'Thank the ')
+
 
 
 # %%
