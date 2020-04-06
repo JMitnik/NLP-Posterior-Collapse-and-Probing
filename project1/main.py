@@ -1,22 +1,47 @@
-# To add a new cell, type '# %%'
-# To add a new markdown cell, type '# %% [markdown]'
+# %% [markdown]
+# ## Imports
+
+# %%
+import os
+import importlib
+from nltk import Tree
+from nltk.treeprettyprinter import TreePrettyPrinter
+
+# Model-related imports
+import torch
+import torch.nn as nn
+
+import models.RNNLM
+importlib.reload(models.RNNLM)
+from models.RNNLM import RNNLM
+
+import utils
+importlib.reload(utils)
+
+from config import Config
+from torch.utils.tensorboard import SummaryWriter
+
 # %% [markdown]
 # ## Initialization
 # %% [markdown]
 # # Data
 
 # %%
-train_path = '/data/02-21.10way.clean'
-valid_path = '/data/22.auto.clean'
-test_path  = '/data/23.auto.clean'
+
+config = Config(
+    embedding_size=50,
+    hidden_size=50,
+    vocab_size=50,
+    nr_epochs=5,
+    train_path = '/data/02-21.10way.clean',
+    valid_path = '/data/22.auto.clean',
+    test_path  = '/data/23.auto.clean'
+)
 
 # %% [markdown]
 # Our data files consist of lines of the Penn Tree Bank data set. Each line is a sentence in a tree shape. Let's pretty print the first line from the training set to see what we're dealing with!
 
 # %%
-import os
-from nltk import Tree
-from nltk.treeprettyprinter import TreePrettyPrinter
 
 def filereader(path:str):
     """
@@ -40,26 +65,26 @@ def convert_to_sentence(line: str):
 # #### Let's see how our data looks:
 
 # %%
-line = next(filereader(train_path))
+line = next(filereader(config.train_path))
 print(f'Original: {line}')
 print(f'Prased: {convert_to_sentence(line)}')
 
 # %% [markdown]
 # #### Creating our datasets
-# 
+#
 # We have the data, now we want to create dataloaders so we can shuffle and batch our data. For this we will use pytorch's built in classes.
 
 # %%
 # We have a training, validation and test data set. For each, we need a list of sentences.
-train_sents = [convert_to_sentence(l) for l in filereader(train_path)]
-valid_sents = [convert_to_sentence(l) for l in filereader(valid_path)]
-test_sents = [convert_to_sentence(l) for l in filereader(test_path)]
+train_sents = [convert_to_sentence(l) for l in filereader(config.train_path)]
+valid_sents = [convert_to_sentence(l) for l in filereader(config.valid_path)]
+test_sents = [convert_to_sentence(l) for l in filereader(config.test_path)]
 
 # %% [markdown]
 # For our models, we tensors that are easily interpretable for our machines. For this, we convert our sentences to tensors where each word is represented by a number, also we want to have special character tokens and limit our vocabulary so our parameter space is a bit more managable. To do all this, we use the *tokenizers.py* file with the WordTokenizer class, presented by the NLP2-Team.
-# 
+#
 # *Note*: We had special tokens to our sentences such as BOS, EOS and UNK. The BOS and EOS tokens are important, because it tells the model what constitutes as the beginning and the end of a sentence.
-# 
+#
 # We see that, in the code block below, that add_special_tokens is set to True, and appends a BOS and EOS token to the sentences, and are represented as number 1 and 2 in tensor-form. We decode the sentences taking in these special tokens into account.
 
 # %%
@@ -74,7 +99,7 @@ tokenizer = WordTokenizer(train_sents, max_vocab_size=vocab_size)
 # We check if the tokenizer en- and decodes our sentences correctly. Just look at the top-5 sentences in our training set.
 for sentence in train_sents[:5]:
     tokenized = tokenizer.encode(sentence, add_special_tokens=True)
-    sentence_decoded = tokenizer.decode(tokenized, skip_special_tokens=False) 
+    sentence_decoded = tokenizer.decode(tokenized, skip_special_tokens=False)
 
     print('original: ' + sentence)
     print(f'{"-"*10}')
@@ -86,7 +111,7 @@ for sentence in train_sents[:5]:
 
 # %% [markdown]
 # #### Creating custom pytorch data sets
-# 
+#
 # To work with pytorch data loaders, we want custom pytorch dataset.
 
 # %%
@@ -94,12 +119,12 @@ from torch.utils.data import Dataset
 
 class PTBDataset(Dataset):
     """
-        A custom PTB dataset. 
+        A custom PTB dataset.
     """
     def __init__(self, sentences: list, tokenizer: WordTokenizer):
         self.sentences = sentences
         self.tokenizer = tokenizer
-    
+
     def __len__(self):
         """
             Return the length of the dataset.
@@ -160,53 +185,35 @@ for di, d in enumerate(train_loader):
 # We import the model from our models folder. For encoding, this will be our RNNLM, defined in RNNLM.py
 
 # %%
-import models.RNNLM
-import importlib
-importlib.reload(models.RNNLM)
-from models.RNNLM import RNNLM
-embedding_size = 50
-hidden_size = 50
-# vocab size is our vocab size, embedding is 500, hidden is 100. These number are arbitrary for now. Still trying to make the model work
-rnnlm = RNNLM(vocab_size, embedding_size, hidden_size)
-
-import torch
-import torch.nn as nn
-
-# Define loss function
-criterion = nn.NLLLoss(ignore_index=0)
-optim = torch.optim.Adam(rnnlm.parameters())
-
-
-def train_model_on_batch(model: RNNLM, optim: torch.optim.Optimizer, input_tensor: torch.Tensor):
+def train_on_batch(model: RNNLM, optim: torch.optim.Optimizer, input_batch: torch.Tensor):
     optim.zero_grad()
-    # inp is to be shaped as Sentences(=batch) x Words
-    hidden = model.init_hidden(input_tensor)
-    batch_loss = 0
 
     # Current assumption: to not predict past final token, we dont include the EOS tag in the input
-    output = model(input_tensor[:, 0:-1])
-    
+    output = model(input_batch[:, 0:-1])
+
     # One hot target and shift by one (so first word matches second token)
     # target = torch.nn.functional.one_hot(input_tensor, num_classes=vocab_size)
-    target = input_tensor[:, 1:]
+    target = input_batch[:, 1:]
 
     # Calc loss and perform backprop
     loss = criterion(output.reshape(-1, vocab_size), target.reshape(-1, vocab_size))
     loss.backward()
 
     optim.step()
-    return batch_loss
+    return loss
 
+# Define our model, optimizer and loss function
+rnn_lm = RNNLM(config.vocab_size, config.embedding_size, config.hidden_size)
+criterion = nn.CrossEntropyLoss(ignore_index=0)
+optim = torch.optim.Adam(rnn_lm.parameters())
 
-# %%
-all_losses = []
+# Start training
+for epoch in range(config.nr_epochs):
+    for train_batch in train_loader:
+        loss = train_on_batch(rnn_lm, optim, train_batch)
+        perplexity = torch.log(loss)
 
-for batch in train_loader:
- 
-    print(batch)
-    print(f'{"-"*20}')
-    train_model_on_batch(rnnlm, optim, batch)
-    break
+        utils.store_training_results(writer, loss, perplexity, epoch)
 
 
 # %%

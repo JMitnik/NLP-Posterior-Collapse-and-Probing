@@ -19,8 +19,6 @@ class RNNLM(nn.Module):
         self.embedding: nn.Embedding = nn.Embedding(vocab_size, embedding_size)
         self.rnn: nn.GRU = nn.GRU(embedding_size, hidden_size, batch_first=True)
         self.fc1: nn.Linear = nn.Linear(hidden_size, vocab_size)
-   
-        self.out: nn.Softmax = nn.LogSoftmax(dim=-1)
 
     def forward(self, x: torch.Tensor):
         """
@@ -43,11 +41,9 @@ class RNNLM(nn.Module):
 
         # Classify by passing into fc-layer, and activate
         classification = self.fc1(states)
-      
-        out = self.out(classification)
 
         # Return classification and hidden as state up til now
-        return out
+        return classification
 
     def init_hidden(self, batch):
         return torch.zeros(batch.shape[0], self.hidden_size)
