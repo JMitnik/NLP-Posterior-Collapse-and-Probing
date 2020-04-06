@@ -20,7 +20,7 @@ class RNNLM(nn.Module):
         self.rnn: nn.GRU = nn.GRU(embedding_size, hidden_size, batch_first=True)
         self.fc1: nn.Linear = nn.Linear(hidden_size, vocab_size)
    
-        self.out: nn.Softmax = nn.Softmax(dim=-1)
+        self.out: nn.Softmax = nn.LogSoftmax(dim=-1)
 
     def forward(self, x: torch.Tensor):
         """

@@ -169,8 +169,6 @@ hidden_size = 50
 # vocab size is our vocab size, embedding is 500, hidden is 100. These number are arbitrary for now. Still trying to make the model work
 rnnlm = RNNLM(vocab_size, embedding_size, hidden_size)
 
-
-# %%
 import torch
 import torch.nn as nn
 
@@ -179,17 +177,21 @@ criterion = nn.NLLLoss(ignore_index=0)
 optim = torch.optim.Adam(rnnlm.parameters())
 
 
-# %%
 def train_model_on_batch(model: RNNLM, optim: torch.optim.Optimizer, input_tensor: torch.Tensor):
     optim.zero_grad()
     # inp is to be shaped as Sentences(=batch) x Words
     hidden = model.init_hidden(input_tensor)
     batch_loss = 0
 
-    output = model(input_tensor)
+    # Current assumption: to not predict past final token, we dont include the EOS tag in the input
+    output = model(input_tensor[:, 0:-1])
     
+    # One hot target and shift by one (so first word matches second token)
+    # target = torch.nn.functional.one_hot(input_tensor, num_classes=vocab_size)
+    target = input_tensor[:, 1:]
+
     # Calc loss and perform backprop
-    loss = criterion(torch.log(output), torch.tensor(next_words))
+    loss = criterion(output.reshape(-1, vocab_size), target.reshape(-1, vocab_size))
     loss.backward()
 
     optim.step()
@@ -208,6 +210,3 @@ for batch in train_loader:
 
 
 # %%
-
-
-
