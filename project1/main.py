@@ -205,16 +205,28 @@ def train_on_batch(model: RNNLM, optim: torch.optim.Optimizer, input_batch: torc
 
 # Define our model, optimizer and loss function
 rnn_lm = RNNLM(config.vocab_size, config.embedding_size, config.hidden_size).to(config.device)
-criterion = nn.CrossEntropyLoss(ignore_index=0)
+criterion = nn.CrossEntropyLoss(
+    ignore_index=0,
+    reduction='sum'
+)
+
 optim = torch.optim.Adam(rnn_lm.parameters())
 
 # Start training
 training_writer = SummaryWriter()
 
+losses = []
+perplexities = []
+
 for epoch in range(config.nr_epochs):
     for train_batch in train_loader:
         loss = train_on_batch(rnn_lm, optim, train_batch)
+        loss = loss / config.batch_size
+
+        losses.append(loss)
         perplexity = torch.log(loss)
+
+        losses.append(loss)
 
         # TODO: Improve training results, log also on and across epoch
         utils.store_training_results(training_writer, loss, perplexity, epoch)
@@ -237,5 +249,3 @@ def impute_next_word(model, sentence):
 impute_next_word(rnn_lm, 'Thank the ')
 
 
-
-# %%
