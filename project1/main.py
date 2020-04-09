@@ -35,7 +35,7 @@ config = Config(
     embedding_size=50,
     hidden_size=50,
     vocab_size=10000,
-    nr_epochs=1,
+    nr_epochs=3,
     train_path = '/data/02-21.10way.clean',
     valid_path = '/data/22.auto.clean',
     test_path  = '/data/23.auto.clean',
@@ -150,7 +150,7 @@ import torch.distributions as D
 
 temperature = 0.98
 
-def impute_next_word(model, start="We are happy", max_length=50):
+def impute_next_word(model, start="", max_length=50):
     print(f'Start of the sentence: {start} || Max Length {max_length} .')
     with torch.no_grad():
         encoded_start = cd.tokenizer.encode(start, add_special_tokens=True)[:-1]
