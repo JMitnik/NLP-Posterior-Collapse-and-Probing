@@ -17,8 +17,8 @@ class CustomData:
     def __init__(self, config: Config):
         print('Init Custom Dataset')
         self.train_sents = [self.convert_to_sentence(l) for l in filereader(config.train_path)]
-        # self.valid_sents = [self.convert_to_sentence(l) for l in filereader(config.valid_path)]
-        # self.test_sents = [self.convert_to_sentence(l) for l in filereader(config.test_path)]
+        self.valid_sents = [self.convert_to_sentence(l) for l in filereader(config.valid_path)]
+        self.test_sents = [self.convert_to_sentence(l) for l in filereader(config.test_path)]
         self.config = config
         self.tokenizer = WordTokenizer(self.train_sents, config.vocab_size)
 
