@@ -148,9 +148,9 @@ print("Done with training!")
 import torch.nn.functional as F
 import torch.distributions as D
 
-temperature = 1
+temperature = 0.98
 
-def impute_next_word(model, start="", max_length=50):
+def impute_next_word(model, start="We are happy", max_length=50):
     print(f'Start of the sentence: {start} || Max Length {max_length} .')
     with torch.no_grad():
         encoded_start = cd.tokenizer.encode(start, add_special_tokens=True)[:-1]
@@ -162,92 +162,21 @@ def impute_next_word(model, start="", max_length=50):
             model_inp = torch.tensor(sentence).to(config.device)
             model_inp = model_inp.unsqueeze(0) # Ensures we pass a 1(=batch-dimension) x sen-length vector
             output = model(model_inp).cpu().detach()
-
-            prediction_vector = F.softmax(output[0][0] / temperature)
+            # print(output)
+            prediction_vector = F.softmax(output[0][-1] / temperature)
             sample_vector = D.Categorical(prediction_vector)
             sample = int(sample_vector.sample())
             sentence.append(sample)
 
             if sample == 2: # If we sampled EOS
                 break
-            # break
 
         print(sentence)
         print(f'Sentence Length: {len(sentence)}')
-        # print(encoded_start)
-        # print(cd.tokenizer.decode(encoded_start, skip_special_tokens=False))
-        
-        # model_inp = torch.tensor(sentence).to(config.device)
-        # model_inp = model_inp.unsqueeze(0)
-        # # last_word = encoded_start[-1]
-        # output = model(model_inp).cpu().detach() # what is the first tensor and what is the second?
-        # print(output[0])
-        # print(output[0][0])
-        # print(output[0][1])
-        # print(output[0][-1])
-        # prediction_vector = F.softmax(output[0][1] / temperature)
-        # print(prediction_vector)
-        # print(torch.sum(prediction_vector))
-        # sample_vector = D.Categorical(prediction_vector)
-        # sample = sample_vector.sample()
-        # print(sample)
-        # sentence.append(int(sample))
-        # print(sentence)
-        ####
-        # test = torch.tensor([-7.245, -0.1, -10.4, 3.3])
-        # test = F.softmax(test)
-        # print(test)
-        # test = D.Categorical(test)
-        # print(test.sample())
-        # 
 
-        
-        # print(model_inp)
-        
-        # output_name = start_letter
-        # What about our hidden layer? Musnt we set it to zero when we create a new sentence??
-        # That way, our history is "cleared" and we can create a new sentence
-        # hidden = model.init_hidden(model_inp)
-        # print(hidden.size())
-
-        
-        # output, hidden = model(model_inp, hidden)
-        ### Multi Nomial Sample / Temperature / Feed it back to GRU
-        # for i in range(max_length):
-            
-        #     print("get a new word")
-        #     output = model(model_inp).cpu().detach()
-        #     topi = output[:, -1, :].topk(1)
-        #     print(topi)
-        #     print(topi[0])
-        #     print(topi.indices.item())
-        #     word = [topi.indices[0][0].item()]
-        #     # word = cd.tokenizer.decode(word)
-        #     print(word)            
-        #     # word = cd.tokenizer.decode(topi.indices[0][0])
-        #     # print(word)
-            
-        #     if word == 2:
-        #         print('Stop the sentence')
-        #         sentence.append(2)
-        #         break
-        #     else:
-        #         last_word = topi.indices.item()
-        #         print('new sentence')
-        #         print(sentence)
-        #         print(last_word)
-        #         sentence.append(last_word)
-
-        #     print(sentence)
-        #     model_inp = torch.tensor(sentence).to(config.device)
-        #     model_inp = model_inp.unsqueeze(0)
-        # print(sentence)
-        # print(cd.tokenizer.decode(sentence))
         return sentence
             
-# TODO: Shitty results, hmm
 generated_sentence = impute_next_word(rnn_lm)
 print(cd.tokenizer.decode(generated_sentence))
-
 
 # %%
