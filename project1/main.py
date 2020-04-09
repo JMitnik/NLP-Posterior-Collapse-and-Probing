@@ -2,6 +2,7 @@
 # ## Imports
 
 # %%
+from dataclasses import asdict
 import os
 import importlib
 from nltk import Tree
@@ -31,7 +32,10 @@ from torch.utils.tensorboard import SummaryWriter
 config = Config(
     batch_size=16,
     embedding_size=50,
-    hidden_size=50,
+    rnn_hidden_size=50,
+    vae_encoder_hidden_size=128,
+    vae_decoder_hidden_size=128,
+    vae_latent_size=128,
     vocab_size=10000,
     nr_epochs=50,
     train_path = '/data/02-21.10way.clean',
@@ -204,7 +208,7 @@ def train_on_batch(model: RNNLM, optim: torch.optim.Optimizer, input_batch: torc
     return loss
 
 # Define our model, optimizer and loss function
-rnn_lm = RNNLM(config.vocab_size, config.embedding_size, config.hidden_size).to(config.device)
+rnn_lm = RNNLM(config.vocab_size, config.embedding_size, config.rnn_hidden_size).to(config.device)
 criterion = nn.CrossEntropyLoss(
     ignore_index=0,
     reduction='sum'
@@ -249,3 +253,31 @@ def impute_next_word(model, sentence):
 impute_next_word(rnn_lm, 'Thank the ')
 
 
+#%%
+# Playing around with VAEs now
+import models.VAE
+importlib.reload(models.VAE)
+from models.VAE import VAE
+vae = VAE(
+    encoder_hidden_size=config.vae_encoder_hidden_size,
+    decoder_hidden_size=config.vae_decoder_hidden_size,
+    latent_size=config.vae_latent_size,
+    vocab_size=config.vocab_size,
+    embedding_size=config.embedding_size
+).to(config.device)
+
+for epoch in range(config.nr_epochs):
+    for train_batch in train_loader:
+        loss = train_on_batch(vae, optim, train_batch)
+        loss = loss / config.batch_size
+
+        losses.append(loss)
+        perplexity = torch.log(loss)
+
+        losses.append(loss)
+
+        # TODO: Improve training results, log also on and across epoch
+        utils.store_training_results(training_writer, loss, perplexity, epoch)
+# %%
+
+# %%
