@@ -35,7 +35,7 @@ config = Config(
     embedding_size=50,
     hidden_size=50,
     vocab_size=10000,
-    nr_epochs=3,
+    nr_epochs=2,
     train_path = '/data/02-21.10way.clean',
     valid_path = '/data/22.auto.clean',
     test_path  = '/data/23.auto.clean',
@@ -46,16 +46,10 @@ print(f'Running Models on {config.device}.')
 
 cd = CustomData(config)
 
-train_loader = cd.get_data_loader(type="train", shuffle=True)#DataLoader(cd.train_set, batch_size=config.batch_size, shuffle=False, collate_fn=padded_collate)
+train_loader = cd.get_data_loader(type="train", shuffle=True)
 valid_loader = cd.get_data_loader(type='valid', shuffle=False)
 test_loader = cd.get_data_loader(type='test', shuffle=False)
-# Small test for a data loader
-# for di, d in enumerate(train_loader):
-#     print(d)
-#     print(d.tolist())
-#     print(f'{"-"*20}')
-#     if di == 1:
-#         break
+
 
 # %% [markdown]
 # ## Defining the Model
@@ -97,7 +91,6 @@ def evaluate_model(model, data_loader, epoch):
             total_loss += loss / len(batch)
     
     total_loss = total_loss / len(data_loader)
-    print(f'Evaluation Loss: {total_loss}')
     return total_loss, torch.log(total_loss)
 
 
@@ -112,15 +105,13 @@ optim = torch.optim.Adam(rnn_lm.parameters())
 # Start training
 writer = SummaryWriter()
 no_iters = len(train_loader)
-print(no_iters)
 print_every = round(no_iters / 50) # print 50 times
-print(print_every)
 validate_every = round(no_iters/10) # validate 10 times
+total_iters = 0
 
-
-for epoch in range(config.nr_epochs):
-    print(f'Epoch: {epoch}')
-    iter = 0 + epoch * len(train_loader)
+for epoch in range(config.nr_epochs - 1):
+    print(f'Epoch: {epoch + 1}')
+    iter = 0
     for train_batch in train_loader:
         rnn_lm.train()
         loss = train_on_batch(rnn_lm, optim, train_batch)
@@ -128,17 +119,19 @@ for epoch in range(config.nr_epochs):
         perplexity = torch.log(loss)
 
         # TODO: Improve training results, log also on and across epoch
-        utils.store_training_results(writer, 'training' , loss, perplexity, iter)
+        utils.store_training_results(writer, 'training' , loss, perplexity, total_iters)
         
         if iter % print_every == 0:
             print(f'Iter: {iter}, {round(iter/no_iters*100)}/100% || Loss: {loss} || Perplexity {perplexity}')
         iter += 1
+        total_iters += 1
 
         if iter % validate_every == 0:
             print("Evaluating...")
             valid_loss, valid_perp = evaluate_model(rnn_lm, valid_loader, epoch)
-            utils.store_training_results(writer, 'validation' , valid_loss, valid_perp, iter)
-
+            print(f'Validation -- Iter: {iter}, {round(iter/no_iters*100)}/100% || Loss: {loss} || Perplexity {perplexity}')
+            utils.store_training_results(writer, 'validation' , valid_loss, valid_perp, total_iters)
+    print('\n\n')
 print("Done with training!")
 
 
@@ -148,9 +141,9 @@ print("Done with training!")
 import torch.nn.functional as F
 import torch.distributions as D
 
-temperature = 0.98
+temperature = 1.01
 
-def impute_next_word(model, start="", max_length=50):
+def impute_next_word(model, start="banks collapsed", max_length=50):
     print(f'Start of the sentence: {start} || Max Length {max_length} .')
     with torch.no_grad():
         encoded_start = cd.tokenizer.encode(start, add_special_tokens=True)[:-1]
