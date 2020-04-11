@@ -33,8 +33,13 @@ class VAE(nn.Module):
         mu, sigma = self.encoder(embeds)
 
         # Sample latent variable
-        distribution: torch.distributions.Distribution = self.make_distribution(mu, sigma)
-        z = distribution.rsample()
+        distribution: torch.distributions.Distribution = self.make_distribution(
+            mu.clone().cpu(),
+            sigma.clone().cpu()
+        )
+
+        # Send to same device as where the input is
+        z = distribution.rsample().to(x.device)
 
         pred = self.decoder(embeds, z)
 
