@@ -254,6 +254,23 @@ impute_next_word(rnn_lm, 'Thank the ')
 
 
 #%%
+prior = torch.distributions.Normal(torch.zeros(config.vae_latent_size), torch.ones(config.vae_latent_size))
+
+def batch_train_vae(vae, optimizer, train_batch):
+    optimizer.zero_grad()
+
+    outputs = vae(inputs)
+    loss = criterion(outputs, labels)
+
+    loss.backward()
+    optimizer.step()
+
+    running_loss += loss.item()
+
+        print('Loss: {}'.format(running_loss)
+
+    print('Finished Training')
+
 # Playing around with VAEs now
 import models.VAE
 importlib.reload(models.VAE)

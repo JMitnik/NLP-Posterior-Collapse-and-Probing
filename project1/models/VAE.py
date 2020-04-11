@@ -20,17 +20,25 @@ class VAE(nn.Module):
         self.vocab_size = vocab_size
         self.embedding_size = embedding_size
 
-        self.embedding = nn.Embedding(vocab_size, embedding_size)
-
+        self.embeddings = nn.Embedding(vocab_size, embedding_size)
 
         self.encoder: Encoder = Encoder(vocab_size, embedding_size, encoder_hidden_size, latent_size)
         self.decoder: Decoder = Decoder(vocab_size, embedding_size, latent_size, decoder_hidden_size)
 
-    def forward(self, x):
-        z, distribution = self.encoder(x)
-        reconstruction = self.decoder(x, z)
+    def make_distribution(self, mu, sigma):
+        return torch.distributions.Normal(mu, sigma)
 
-        return reconstruction, distribution
+    def forward(self, x):
+        embeds = self.embeddings(x)
+        mu, sigma = self.encoder(embeds)
+
+        # Sample latent variable
+        distribution: torch.distributions.Distribution = self.make_distribution(mu, sigma)
+        z = distribution.rsample()
+
+        pred = self.decoder(embeds, z)
+
+        return pred, distribution
 
 class Encoder(nn.Module):
     """
@@ -50,7 +58,6 @@ class Encoder(nn.Module):
         self.hidden_size = hidden_size * 2
         self.latent_size = latent_size
 
-        self.embeddings = nn.Embedding(vocab_size, embedding_size)
         self.rnn = nn.GRU(embedding_size, hidden_size, bidirectional=True, batch_first=True)
 
         self.hidden2mu = nn.Linear(self.hidden_size, latent_size)
@@ -58,13 +65,8 @@ class Encoder(nn.Module):
 
         self.softplus = nn.Softplus()
 
-    def make_distribution(self, mu, sigma):
-        # TODO: Fix this
-        return torch.distributions.MultivariateNormal(mu, sigma)
-
     def forward(self, x):
-        embeddings: torch.Tensor = self.embeddings(x)
-        _, final_hidden = self.rnn(embeddings)
+        _, final_hidden = self.rnn(x)
 
         # Concat final hidden state from forward (0) and backward (1)
         hidden = torch.cat((final_hidden[0, :, :], final_hidden[1, :, :]), dim=1)
@@ -72,10 +74,7 @@ class Encoder(nn.Module):
         mu = self.hidden2mu(hidden)
         sigma = self.softplus(self.hidden2sigma(hidden))
 
-        distribution: torch.distributions.Distribution = self.make_distribution(mu, sigma)
-        z = distribution.rsample((x.shape[0], self.latent_size))
-
-        return z, distribution
+        return mu, sigma
 
 class Decoder(nn.Module):
     """
@@ -93,7 +92,6 @@ class Decoder(nn.Module):
         self.latent_size = latent_size
         self.hidden_size = hidden_size
 
-        self.embedding: nn.Embedding = nn.Embedding(vocab_size, embedding_size)
         self.rnn = nn.GRU(self.embedding_size, self.hidden_size, batch_first=True)
         self.latent2hidden = nn.Linear(latent_size, hidden_size)
 
@@ -103,7 +101,7 @@ class Decoder(nn.Module):
 
     def forward(self, x, z):
         global_hidden = self.tanh(self.latent2hidden(z))
-        states, _ = self.rnn(x, global_hidden)
+        states, _ = self.rnn(x, global_hidden.view(1, global_hidden.shape[0], -1))
 
         out = self.hidden2out(states)
         return out
