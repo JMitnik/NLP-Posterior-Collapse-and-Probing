@@ -3,8 +3,10 @@ import torch
 
 def store_training_results(
     writer: SummaryWriter,
+    name: str,
     loss: torch.Tensor,
-    perplexity: torch.Tensor, epoch_nr: int
+    perplexity: torch.Tensor, 
+    epoch_nr: int
 ):
     """
     Stores results by doing the following
@@ -14,5 +16,5 @@ def store_training_results(
         loss {torch.Tensor} -- Loss for a training batch
         perplexity {torch.Tensor} -- Perplexity for a training batch
     """
-    writer.add_scalar('Train/loss', loss, epoch_nr)
-    writer.add_scalar('Train/perplexity', perplexity, epoch_nr)
+    writer.add_scalar(f'{name}/loss', loss, epoch_nr)
+    writer.add_scalar(f'{name}/perplexity', perplexity, epoch_nr)

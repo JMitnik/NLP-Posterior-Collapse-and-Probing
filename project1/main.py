@@ -21,10 +21,12 @@ importlib.reload(utils)
 from config import Config
 from torch.utils.tensorboard import SummaryWriter
 
-# %% [markdown]
-# ## Initialization
-# %% [markdown]
-# # Data
+from customdata import CustomData
+
+# %%
+print(torch.version.cuda)
+print(torch.cuda.is_available())
+
 
 # %%
 
@@ -33,157 +35,28 @@ config = Config(
     embedding_size=50,
     hidden_size=50,
     vocab_size=10000,
-    nr_epochs=50,
+    nr_epochs=2,
     train_path = '/data/02-21.10way.clean',
     valid_path = '/data/22.auto.clean',
     test_path  = '/data/23.auto.clean',
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 )
 
-# %% [markdown]
-# Our data files consist of lines of the Penn Tree Bank data set. Each line is a sentence in a tree shape. Let's pretty print the first line from the training set to see what we're dealing with!
+print(f'Running Models on {config.device}.')
 
-# %%
+cd = CustomData(config)
 
-def filereader(path:str):
-    """
-        Opens a PTS datafile yields one line at a time.
-    """
-    with open(os.getcwd() + path, mode='r') as f:
-        for line in f:
-            yield line
+train_loader = cd.get_data_loader(type="train", shuffle=True)
+valid_loader = cd.get_data_loader(type='valid', shuffle=False)
+test_loader = cd.get_data_loader(type='test', shuffle=False)
 
-
-# %%
-def convert_to_sentence(line: str):
-    """
-        Takes in a line from a PTS datafile and returns it as a lower-case string.
-    """
-    tree = Tree.fromstring(line)
-    sentence = ' '.join(tree.leaves()).lower()
-    return sentence
-
-# %% [markdown]
-# #### Let's see how our data looks:
-
-# %%
-line = next(filereader(config.train_path))
-print(f'Original: {line}')
-print(f'Prased: {convert_to_sentence(line)}')
-
-# %% [markdown]
-# #### Creating our datasets
-#
-# We have the data, now we want to create dataloaders so we can shuffle and batch our data. For this we will use pytorch's built in classes.
-
-# %%
-# We have a training, validation and test data set. For each, we need a list of sentences.
-train_sents = [convert_to_sentence(l) for l in filereader(config.train_path)]
-valid_sents = [convert_to_sentence(l) for l in filereader(config.valid_path)]
-test_sents = [convert_to_sentence(l) for l in filereader(config.test_path)]
-
-# %% [markdown]
-# For our models, we tensors that are easily interpretable for our machines. For this, we convert our sentences to tensors where each word is represented by a number, also we want to have special character tokens and limit our vocabulary so our parameter space is a bit more managable. To do all this, we use the *tokenizers.py* file with the WordTokenizer class, presented by the NLP2-Team.
-#
-# *Note*: We had special tokens to our sentences such as BOS, EOS and UNK. The BOS and EOS tokens are important, because it tells the model what constitutes as the beginning and the end of a sentence.
-#
-# We see that, in the code block below, that add_special_tokens is set to True, and appends a BOS and EOS token to the sentences, and are represented as number 1 and 2 in tensor-form. We decode the sentences taking in these special tokens into account.
-
-# %%
-from tokenizers import WordTokenizer
-
-# Creating and train our tokenizer. We want a relatively small vocabulary of 10000 words. Credits to the NLP2 team for creating this tokenizer.
-tokenizer = WordTokenizer(train_sents, max_vocab_size=config.vocab_size)
-
-# We check if the tokenizer en- and decodes our sentences correctly. Just look at the top-5 sentences in our training set.
-for sentence in train_sents[:5]:
-    tokenized = tokenizer.encode(sentence, add_special_tokens=True)
-    sentence_decoded = tokenizer.decode(tokenized, skip_special_tokens=False)
-
-    print('original: ' + sentence)
-    print(f'{"-"*10}')
-    print('tokenized: ', tokenized)
-    print(f'{"-"*10}')
-    print('decoded: ' + sentence_decoded)
-    print(f'{"-"*10}')
-    print('\n\n')
-
-# %% [markdown]
-# #### Creating custom pytorch data sets
-#
-# To work with pytorch data loaders, we want custom pytorch dataset.
-
-# %%
-from torch.utils.data import Dataset
-
-class PTBDataset(Dataset):
-    """
-        A custom PTB dataset.
-    """
-    def __init__(self, sentences: list, tokenizer: WordTokenizer):
-        self.sentences = sentences
-        self.tokenizer = tokenizer
-
-    def __len__(self):
-        """
-            Return the length of the dataset.
-        """
-        return len(self.sentences)
-
-    def __getitem__(self, idx: int):
-        """
-            Returns a tokenized item at position idx from the dataset.
-        """
-        item = self.sentences[idx]
-        tokenized = self.tokenizer.encode(item, add_special_tokens=True)
-        return tokenized
-
-
-# %%
-# We instantiate the datasets.
-train_set = PTBDataset(train_sents, tokenizer)
-valid_set = PTBDataset(valid_sents, tokenizer)
-test_set = PTBDataset(test_sents, tokenizer)
-
-# Lets print some information about our datasets
-print(f'train/validation/test :: {len(train_set)}/{len(valid_set)}/{len(test_set)}')
-
-# %% [markdown]
-# Now let's create dataloaders that can load/shuffle and batch our data. W
-# When pytorch batches our data, it stacks the tensors. However, since our sentences are not equal in size, their corresponding tensors will also have different sizes. To fix this problem, we pad each sentence in a batch to the size, taking our longest sentence as the target size. This way, stacking tensors won't be a problem.
-
-# %%
-from torch.utils.data import DataLoader
-import torch
-
-def padded_collate(batch: list):
-    """
-     Pad each sentence to the length of the longest sentence in the batch
-    """
-    sentence_lengths = [len(s) for s in batch]
-    max_length = max(sentence_lengths)
-    padded_batch = [s + [0] * (max_length - len(s)) for s in batch]
-    return torch.LongTensor(padded_batch)
-
-# %% [markdown]
-# We want to test if our data loader works, so we create one of our test set with a tiny batch size of 2. From to batches, we print the output.
-
-# %%
-train_loader = DataLoader(train_set, batch_size=config.batch_size, shuffle=False, collate_fn=padded_collate)
-
-# Small test for a data loader
-for di, d in enumerate(train_loader):
-    print(d)
-    print(d.tolist())
-    print(f'{"-"*20}')
-    if di == 1:
-        break
 
 # %% [markdown]
 # ## Defining the Model
 # We import the model from our models folder. For encoding, this will be our RNNLM, defined in RNNLM.py
 
 # %%
+
 def train_on_batch(model: RNNLM, optim: torch.optim.Optimizer, input_batch: torch.Tensor):
     optim.zero_grad()
 
@@ -203,49 +76,100 @@ def train_on_batch(model: RNNLM, optim: torch.optim.Optimizer, input_batch: torc
     optim.step()
     return loss
 
+def evaluate_model(model, data_loader, epoch):
+    model.eval()
+    total_loss = 0
+
+    for batch in data_loader:
+        with torch.no_grad():
+            input = batch[:, 0: -1].to(config.device)
+            target = batch[:, 1:].to(config.device)
+        
+            output = model(input)
+
+            loss = criterion(output.reshape(-1, config.vocab_size), target.reshape(-1))
+            total_loss += loss / len(batch)
+    
+    total_loss = total_loss / len(data_loader)
+    return total_loss, torch.log(total_loss)
+
+
 # Define our model, optimizer and loss function
 rnn_lm = RNNLM(config.vocab_size, config.embedding_size, config.hidden_size).to(config.device)
 criterion = nn.CrossEntropyLoss(
     ignore_index=0,
     reduction='sum'
 )
-
 optim = torch.optim.Adam(rnn_lm.parameters())
 
 # Start training
-training_writer = SummaryWriter()
+writer = SummaryWriter()
+no_iters = len(train_loader)
+print_every = round(no_iters / 50) # print 50 times
+validate_every = round(no_iters/10) # validate 10 times
+total_iters = 0
 
-losses = []
-perplexities = []
-
-for epoch in range(config.nr_epochs):
+for epoch in range(config.nr_epochs - 1):
+    print(f'Epoch: {epoch + 1}')
+    iter = 0
     for train_batch in train_loader:
+        rnn_lm.train()
         loss = train_on_batch(rnn_lm, optim, train_batch)
         loss = loss / config.batch_size
-
-        losses.append(loss)
         perplexity = torch.log(loss)
 
-        losses.append(loss)
-
         # TODO: Improve training results, log also on and across epoch
-        utils.store_training_results(training_writer, loss, perplexity, epoch)
+        utils.store_training_results(writer, 'training' , loss, perplexity, total_iters)
+        
+        if iter % print_every == 0:
+            print(f'Iter: {iter}, {round(iter/no_iters*100)}/100% || Loss: {loss} || Perplexity {perplexity}')
+        iter += 1
+        total_iters += 1
+
+        if iter % validate_every == 0:
+            print("Evaluating...")
+            valid_loss, valid_perp = evaluate_model(rnn_lm, valid_loader, epoch)
+            print(f'Validation -- Iter: {iter}, {round(iter/no_iters*100)}/100% || Loss: {loss} || Perplexity {perplexity}')
+            utils.store_training_results(writer, 'validation' , valid_loss, valid_perp, total_iters)
+    print('\n\n')
+print("Done with training!")
+
 
 # %%
-def impute_next_word(model, sentence):
-    inp = torch.tensor(tokenizer.encode(sentence, add_special_tokens=True)).to(config.device)
-    inp = inp.unsqueeze(0) # Ensures we pass a 1(=batch-dimension) x sen-length vector
 
-    pred = model(inp).cpu().detach()
+# %%
+import torch.nn.functional as F
+import torch.distributions as D
 
-    # Get prediction for last token
-    last_pred = [pred[:, -1, :].argmax().item()]
+temperature = 1.01
 
-    # Decode prediction
-    output = tokenizer.decode(last_pred)
-    return output
+def impute_next_word(model, start="banks collapsed", max_length=50):
+    print(f'Start of the sentence: {start} || Max Length {max_length} .')
+    with torch.no_grad():
+        encoded_start = cd.tokenizer.encode(start, add_special_tokens=True)[:-1]
+        sentence = encoded_start
+        print(sentence)
 
-# TODO: Shitty results, hmm
-impute_next_word(rnn_lm, 'Thank the ')
+        for i in range(max_length):
+            # Create input for the model
+            model_inp = torch.tensor(sentence).to(config.device)
+            model_inp = model_inp.unsqueeze(0) # Ensures we pass a 1(=batch-dimension) x sen-length vector
+            output = model(model_inp).cpu().detach()
+            # print(output)
+            prediction_vector = F.softmax(output[0][-1] / temperature)
+            sample_vector = D.Categorical(prediction_vector)
+            sample = int(sample_vector.sample())
+            sentence.append(sample)
 
+            if sample == 2: # If we sampled EOS
+                break
 
+        print(sentence)
+        print(f'Sentence Length: {len(sentence)}')
+
+        return sentence
+            
+generated_sentence = impute_next_word(rnn_lm)
+print(cd.tokenizer.decode(generated_sentence))
+
+# %%
