@@ -35,7 +35,7 @@ config = Config(
     embedding_size=50,
     hidden_size=50,
     vocab_size=10000,
-    nr_epochs=2,
+    nr_epochs=1,
     train_path = '/data/02-21.10way.clean',
     valid_path = '/data/22.auto.clean',
     test_path  = '/data/23.auto.clean',
@@ -102,6 +102,7 @@ criterion = nn.CrossEntropyLoss(
 )
 optim = torch.optim.Adam(rnn_lm.parameters())
 
+# %%
 # Start training
 writer = SummaryWriter()
 no_iters = len(train_loader)
@@ -109,7 +110,7 @@ print_every = round(no_iters / 50) # print 50 times
 validate_every = round(no_iters/10) # validate 10 times
 total_iters = 0
 
-for epoch in range(config.nr_epochs - 1):
+for epoch in range(config.nr_epochs):
     print(f'Epoch: {epoch + 1}')
     iter = 0
     for train_batch in train_loader:
@@ -143,7 +144,7 @@ import torch.distributions as D
 
 temperature = 1.01
 
-def impute_next_word(model, start="banks collapsed", max_length=50):
+def impute_next_word(model, start="", max_length=10):
     print(f'Start of the sentence: {start} || Max Length {max_length} .')
     with torch.no_grad():
         encoded_start = cd.tokenizer.encode(start, add_special_tokens=True)[:-1]
@@ -159,6 +160,9 @@ def impute_next_word(model, start="banks collapsed", max_length=50):
             prediction_vector = F.softmax(output[0][-1] / temperature)
             sample_vector = D.Categorical(prediction_vector)
             sample = int(sample_vector.sample())
+            if sample == 3: # cannot produces UNK token
+                i = i-1
+                continue
             sentence.append(sample)
 
             if sample == 2: # If we sampled EOS
@@ -171,5 +175,11 @@ def impute_next_word(model, start="banks collapsed", max_length=50):
             
 generated_sentence = impute_next_word(rnn_lm)
 print(cd.tokenizer.decode(generated_sentence))
+
+/# %%
+
+
+# %%
+
 
 # %%
