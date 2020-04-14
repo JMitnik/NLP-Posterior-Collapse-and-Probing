@@ -28,13 +28,13 @@ from torch.utils.tensorboard import SummaryWriter
 # # Data
 
 # %%
-
 config = Config(
     batch_size=16,
     embedding_size=50,
     rnn_hidden_size=50,
     vae_encoder_hidden_size=128,
-    vae_decoder_hidden_size=128,
+    vae_decoder_hidden_size=1281,
+    param_wdropout_k=0.5,
     vae_latent_size=128,
     vocab_size=10000,
     nr_epochs=50,
@@ -222,18 +222,19 @@ training_writer = SummaryWriter()
 losses = []
 perplexities = []
 
-for epoch in range(config.nr_epochs):
-    for train_batch in train_loader:
-        loss = train_on_batch(rnn_lm, optim, train_batch)
-        loss = loss / config.batch_size
+# UNCOMMENT For training
+# for epoch in range(config.nr_epochs):
+#     for train_batch in train_loader:
+#         loss = train_on_batch(rnn_lm, optim, train_batch)
+#         loss = loss / config.batch_size
 
-        losses.append(loss)
-        perplexity = torch.log(loss)
+#         losses.append(loss)
+#         perplexity = torch.log(loss)
 
-        losses.append(loss)
+#         losses.append(loss)
 
-        # TODO: Improve training results, log also on and across epoch
-        utils.store_training_results(training_writer, loss, perplexity, epoch)
+#         # TODO: Improve training results, log also on and across epoch
+#         utils.store_training_results(training_writer, loss, perplexity, epoch)
 
 # %%
 def impute_next_word(model, sentence):
@@ -316,6 +317,7 @@ vae = VAE(
     decoder_hidden_size=config.vae_decoder_hidden_size,
     latent_size=config.vae_latent_size,
     vocab_size=config.vocab_size,
+    param_wdropout_k=config.param_wdropout_k,
     embedding_size=config.embedding_size
 ).to(config.device)
 
@@ -335,6 +337,3 @@ for epoch in range(config.nr_epochs):
             prior
         )
         loss = loss / config.batch_size
-
-
-# %%

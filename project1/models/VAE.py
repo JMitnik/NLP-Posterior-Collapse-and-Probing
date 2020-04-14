@@ -9,24 +9,43 @@ class VAE(nn.Module):
     """
     def __init__(
         self,
-        encoder_hidden_size,
-        decoder_hidden_size,
-        latent_size,
-        vocab_size,
-        embedding_size
+        encoder_hidden_size: int,
+        decoder_hidden_size: int,
+        latent_size: int,
+        vocab_size: int,
+        embedding_size: int,
+        param_wdropout_k: int = 1,
+        token_unknown_index: int = 0
     ):
         super().__init__()
-        self.latent_size = latent_size
-        self.vocab_size = vocab_size
-        self.embedding_size = embedding_size
+        self.latent_size: int = latent_size
+        self.vocab_size: int = vocab_size
+        self.embedding_size: int = embedding_size
 
-        self.embeddings = nn.Embedding(vocab_size, embedding_size)
+        self.embeddings: nn.Embedding = nn.Embedding(vocab_size, embedding_size)
 
         self.encoder: Encoder = Encoder(vocab_size, embedding_size, encoder_hidden_size, latent_size)
         self.decoder: Decoder = Decoder(vocab_size, embedding_size, latent_size, decoder_hidden_size)
 
+        self.param_wdropout_k: int = param_wdropout_k
+        self.token_unknown_index: int = token_unknown_index
+
     def make_distribution(self, mu, sigma):
         return torch.distributions.Normal(mu, sigma)
+
+    def apply_word_dropout(self, input_seq):
+        # Make bernoulli distribution that takes k as its probability
+        bern = torch.distributions.Bernoulli(torch.tensor([self.param_wdropout_k]))
+
+        # Sample mask that is (batch_size x nr_words)
+        mask = bern.sample(torch.tensor([
+            input_seq.shape[0],
+            input_seq.shape[1]
+        ])).to(input_seq.device)
+
+        # Apply mask
+        # TODO: Do we need to somehow prevent the gradient from being set?
+        return input_seq * mask
 
     def forward(self, x):
         embeds = self.embeddings(x)
@@ -40,6 +59,10 @@ class VAE(nn.Module):
 
         # Send to same device as where the input is
         z = distribution.rsample().to(x.device)
+
+        # Apply some dropout here
+        if self.param_wdropout_k < 1:
+            embeds = self.apply_word_dropout(embeds)
 
         pred = self.decoder(embeds, z)
 

@@ -1,5 +1,15 @@
 from dataclasses import dataclass
 
+class bcolors:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
 @dataclass
 class Config:
     # Sizes in general
@@ -21,3 +31,10 @@ class Config:
     vae_encoder_hidden_size: int = 0
     vae_decoder_hidden_size: int = 0
     vae_latent_size: int = 0
+
+    # Hyperparameters
+    param_wdropout_k: int = 1
+
+    def __post_init__(self):
+        if self.param_wdropout_k < 1:
+            print(f"{bcolors.WARNING}❗Word-dropout active, is set to {self.param_wdropout_k} {bcolors.ENDC}")
