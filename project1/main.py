@@ -176,7 +176,7 @@ def impute_next_word(model, start="", max_length=10):
 generated_sentence = impute_next_word(rnn_lm)
 print(cd.tokenizer.decode(generated_sentence))
 
-/# %%
+# %%
 
 
 # %%
