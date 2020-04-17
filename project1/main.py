@@ -2,6 +2,7 @@
 # ## Imports
 
 # %%
+from dataclasses import asdict
 import os
 import importlib
 from nltk import Tree
@@ -10,7 +11,7 @@ from nltk.treeprettyprinter import TreePrettyPrinter
 # Model-related imports
 import torch
 import torch.nn as nn
-
+import torch.functional as F
 import models.RNNLM
 importlib.reload(models.RNNLM)
 from models.RNNLM import RNNLM
@@ -29,11 +30,14 @@ print(torch.cuda.is_available())
 
 
 # %%
-
 config = Config(
     batch_size=16,
     embedding_size=50,
-    hidden_size=50,
+    rnn_hidden_size=50,
+    vae_encoder_hidden_size=128,
+    vae_decoder_hidden_size=1281,
+    param_wdropout_k=0.5,
+    vae_latent_size=128,
     vocab_size=10000,
     nr_epochs=1,
     train_path = '/data/02-21.10way.clean',
@@ -53,7 +57,7 @@ test_loader = cd.get_data_loader(type='test', shuffle=False)
 
 # %% [markdown]
 # ## Defining the Model
-# We import the model from our models folder. For encoding, this will be our RNNLM, defined in RNNLM.py
+# We import the model from our models folder.
 
 # %%
 
@@ -95,7 +99,7 @@ def evaluate_model(model, data_loader, epoch):
 
 
 # Define our model, optimizer and loss function
-rnn_lm = RNNLM(config.vocab_size, config.embedding_size, config.hidden_size).to(config.device)
+rnn_lm = RNNLM(config.vocab_size, config.embedding_size, config.rnn_hidden_size).to(config.device)
 criterion = nn.CrossEntropyLoss(
     ignore_index=0,
     reduction='sum'
@@ -109,6 +113,7 @@ no_iters = len(train_loader)
 print_every = round(no_iters / 50) # print 50 times
 validate_every = round(no_iters/10) # validate 10 times
 total_iters = 0
+
 
 for epoch in range(config.nr_epochs):
     print(f'Epoch: {epoch + 1}')
@@ -136,13 +141,14 @@ for epoch in range(config.nr_epochs):
 print("Done with training!")
 
 
+
 # %%
 
 # %%
 import torch.nn.functional as F
 import torch.distributions as D
 
-temperature = 1.01
+temperature = 1.0
 
 def impute_next_word(model, start="", max_length=10):
     print(f'Start of the sentence: {start} || Max Length {max_length} .')
@@ -177,9 +183,102 @@ generated_sentence = impute_next_word(rnn_lm)
 print(cd.tokenizer.decode(generated_sentence))
 
 # %%
+##-------------------- START VAE --------------------------------------------##
+#%%
+def make_elbo_criterion():
+    likelihood_criterion = nn.CrossEntropyLoss(ignore_index=0)
+    print("Made a new loss-func")
 
+    def elbo_criterion(
+        prediction: torch.Tensor,
+        original: torch.Tensor,
+        prior_dist: torch.distributions.Distribution,
+        posterior_dist: torch.distributions.Distribution
+    ):
+        # TODO: Double check if this is how we do KL divergence properly
+        kl_loss = torch.distributions.kl_divergence(prior_dist, posterior_dist).view(-1).mean(0).to(config.device)
+
+        negative_log_likelihood = likelihood_criterion(
+            prediction.view([-1, config.vocab_size]),
+            original.view(-1)
+        ).to(config.device)
+        return negative_log_likelihood + kl_loss
+
+    return elbo_criterion
 
 # %%
+
+
+def batch_train_vae(
+    model,
+    optimizer,
+    criterion,
+    train_batch,
+    prior,
+):
+    optimizer.zero_grad()
+
+    # Current assumption: to not predict past final token, we dont include the EOS tag in the input
+    inp = train_batch[:, 0:-1].to(config.device)
+
+    # Creat both prediction of next word and the posterior of which we sample Z.
+    preds, posterior = model(inp)
+
+    # Define target as the next word to predict
+    target = train_batch[:, 1:].to(config.device)
+
+    # Calc loss by using the ELBO-criterion
+    loss = criterion(
+        preds,
+        target,
+        prior,
+        posterior
+    )
+
+    # Backprop and gradient descent
+    loss.backward()
+    optimizer.step()
+
+    return loss.item()
+
+
+# %% 
+# Playing around with VAEs now
+import models.VAE
+importlib.reload(models.VAE)
+from models.VAE import VAE
+vae = VAE(
+    encoder_hidden_size=config.vae_encoder_hidden_size,
+    decoder_hidden_size=config.vae_decoder_hidden_size,
+    latent_size=config.vae_latent_size,
+    vocab_size=config.vocab_size,
+    param_wdropout_k=config.param_wdropout_k,
+    embedding_size=config.embedding_size
+).to(config.device)
+
+elbo_criterion = make_elbo_criterion()
+prior = torch.distributions.Normal(
+    torch.zeros(config.vae_latent_size),
+    torch.ones(config.vae_latent_size)
+)
+
+for epoch in range(config.nr_epochs):
+    print (epoch)
+    i = 0
+    for train_batch in train_loader:
+        loss = batch_train_vae(
+            vae,
+            optim,
+            elbo_criterion,
+            train_batch,
+            prior
+        )
+        loss = loss / config.batch_size
+        i += 1
+        print(i)
+        if i % 10 == 0:
+            print(loss)
+
 
 
 # %%
