@@ -36,7 +36,7 @@ config = Config(
     rnn_hidden_size=50,
     vae_encoder_hidden_size=128,
     vae_decoder_hidden_size=1281,
-    param_wdropout_k=0.5,
+    param_wdropout_k=1,
     vae_latent_size=128,
     vocab_size=10000,
     nr_epochs=1,
@@ -204,7 +204,7 @@ def make_elbo_criterion():
         # Mean of all words for each batch item
         negative_log_likelihood = negative_log_likelihood.view(prediction.shape[0], -1).sum(1)
 
-        return negative_log_likelihood + kl_loss
+        return negative_log_likelihood + kl_loss, kl_loss, negative_log_likelihood
 
     return elbo_criterion
 
@@ -227,7 +227,7 @@ def batch_train_vae(
     target = train_batch[:, 1:].to(config.device)
 
     # Calc loss by using the ELBO-criterion
-    loss = criterion(
+    loss, kl_loss, nlll = criterion(
         preds,
         target,
         prior,
@@ -236,12 +236,13 @@ def batch_train_vae(
 
     # Take mean of mini-batch loss
     loss = loss.mean()
-
+    kl_loss = kl_loss.mean()
+    nlll = nlll.mean()
     # Backprop and gradient descent
     loss.backward()
     optimizer.step()
 
-    return loss.item()
+    return loss.item(), kl_loss.item(), nlll.item()
 
 
  
@@ -275,9 +276,9 @@ for epoch in range(config.nr_epochs):
             train_batch,
             prior
         )
-        loss = loss
+        loss, kl_loss, nlll = loss
         if i % 10 == 0:
-            print(loss)
+            print(f'iteration: {i} || KL Loss: {kl_loss} || NLLL: {nlll} || Total: {loss}')
         i += 1
 print('Done training the VAE')
 
