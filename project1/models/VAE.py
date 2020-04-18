@@ -35,8 +35,9 @@ class VAE(nn.Module):
 
     def apply_word_dropout(self, input_seq):
         # Make bernoulli distribution that takes k as its probability
+        
         bern = torch.distributions.Bernoulli(torch.tensor([self.param_wdropout_k]))
-
+        
         # Sample mask that is (batch_size x nr_words)
         mask = bern.sample(torch.tensor([
             input_seq.shape[0],
@@ -48,6 +49,21 @@ class VAE(nn.Module):
         return input_seq * mask
 
     def forward(self, x):
+        # print(x)
+        # print('---------------------')
+        # Apply some dropout here
+        if self.param_wdropout_k < 1:
+            mask = torch.full_like(x, fill_value=self.param_wdropout_k, dtype=float)
+            mask = torch.distributions.Bernoulli(mask)
+            mask = mask.sample().eq(1)
+            pad_mask = x.ne(0) 
+            indexes = pad_mask.__and__(mask)
+            masked_x = x.masked_fill(indexes, value=3)
+            x = masked_x
+            # print(masked_x)
+            # print('word dropout')
+            #embeds = self.apply_word_dropout(embeds)
+
         embeds = self.embeddings(x)
         mu, sigma = self.encoder(embeds)
 
@@ -59,10 +75,6 @@ class VAE(nn.Module):
 
         # Send to same device as where the input is
         z = distribution.rsample().to(x.device)
-
-        # Apply some dropout here
-        if self.param_wdropout_k < 1:
-            embeds = self.apply_word_dropout(embeds)
 
         pred = self.decoder(embeds, z)
 
