@@ -53,7 +53,8 @@ class VAE(nn.Module):
         # Apply some dropout here
         if self.param_wdropout_k < 1:
             """
-            Only problem still is the the BOS will also be turned into a UNK token
+            Only problem still is the the BOS will also be turned 
+            into an UNK token sometimes
             """
             mask = torch.full_like(x, fill_value=self.param_wdropout_k, dtype=float)
             mask = torch.distributions.Bernoulli(mask)
