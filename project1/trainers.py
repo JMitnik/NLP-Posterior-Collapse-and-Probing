@@ -70,7 +70,7 @@ def train_rnn(
     print("Done with training!")
 
 
-def train_batch_vae(model, optimizer, criterion, train_batch, prior, device, writer):
+def train_batch_vae(model, optimizer, criterion, train_batch, prior, device, mu_force_beta_param, writer):
     """
     Trains single batch of VAE
     """
@@ -98,11 +98,19 @@ def train_batch_vae(model, optimizer, criterion, train_batch, prior, device, wri
     kl_loss = kl_loss.mean()
     nlll = nlll.mean()
 
+    # Now add to the loss mu force loss
+    batch_mean_vectors = posterior.loc
+    avg_batch_mean_vector = batch_mean_vectors.mean(0)
+    mu_force_loss_var = torch.tensordot(batch_mean_vectors - avg_batch_mean_vector, batch_mean_vectors - avg_batch_mean_vector, 2) / train_batch.shape[0] / 2
+    mu_force_loss = torch.max(torch.tensor([0.0]), mu_force_beta_param - mu_force_loss_var).to(device)
+
+    loss = loss + mu_force_loss
+
     # Backprop and gradient descent
     loss.backward()
     optimizer.step()
 
-    return (loss.item(), kl_loss.item(), nlll.item()), preds
+    return (loss.item(), kl_loss.item(), nlll.item(), mu_force_loss_var.item()), preds
 
 def train_vae(
     model: VAE,
@@ -114,9 +122,10 @@ def train_vae(
     config: Config,
     decoder,
     freebits_param=-1,
+    mu_force_beta_param=1,
 ):
     vocab_size = model.vocab_size
-    loss_fn = make_elbo_criterion(vocab_size, freebits_param)
+    loss_fn = make_elbo_criterion(vocab_size, freebits_param, mu_force_beta_param)
 
     prior = torch.distributions.Normal(
         torch.zeros(model.latent_size),
@@ -134,15 +143,18 @@ def train_vae(
                 train_batch,
                 prior,
                 device,
+                mu_force_beta_param,
                 results_writer
             )
-            loss, kl_loss, nlll = loss
-            results_writer.add_scalar('train-vae/total-loss', loss, epoch * len(train_loader) + idx)
+            loss, kl_loss, nlll, mu_loss = loss
+            results_writer.add_scalar('train-vae/elbo-loss', loss, epoch * len(train_loader) + idx)
+            results_writer.add_scalar('train-vae/ppl', torch.tensor(torch.log(loss)), epoch * len(train_loader) + idx)
             results_writer.add_scalar('train-vae/kl-loss', kl_loss, epoch * len(train_loader) + idx)
             results_writer.add_scalar('train-vae/nll-loss', nlll, epoch * len(train_loader) + idx)
+            results_writer.add_scalar('train-vae/mu-loss', mu_loss, epoch * len(train_loader) + idx)
 
             if i % 10 == 0:
-                print(f'iteration: {i} || KL Loss: {kl_loss} || NLLL: {nlll} || Total: {loss}')
+                print(f'iteration: {i} || KL Loss: {kl_loss} || NLLL: {nlll} || MuLoss: {mu_loss} || Total: {loss}')
 
             # Every 100 iterations, predict a sentence and check the truth
             if i % 100 == 0:

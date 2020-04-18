@@ -51,6 +51,14 @@ class VAE(nn.Module):
         return input_seq * mask
 
     def forward(self, x):
+        embeds = self.embeddings(x)
+        mu, sigma = self.encoder(embeds)
+
+        # Sample latent variable
+        distribution: torch.distributions.Distribution = self.make_distribution(
+            mu.clone().cpu(),
+            sigma.clone().cpu()
+        )
 
         # Apply some dropout here
         if self.param_wdropout_k < 1:
@@ -65,15 +73,7 @@ class VAE(nn.Module):
             indexes = pad_mask.__and__(mask) # Compare two vector and do an logical AND operator
             masked_x = x.masked_fill(indexes, value=3) # Replace all value for 3(UNK) when true
             x = masked_x
-
-        embeds = self.embeddings(x)
-        mu, sigma = self.encoder(embeds)
-
-        # Sample latent variable
-        distribution: torch.distributions.Distribution = self.make_distribution(
-            mu.clone().cpu(),
-            sigma.clone().cpu()
-        )
+            embeds = self.embeddings(x)
 
         # Send to same device as where the input is
         z = distribution.rsample().to(x.device)

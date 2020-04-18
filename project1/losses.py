@@ -1,9 +1,8 @@
 import torch
 import torch.nn as nn
 
-def make_elbo_criterion(vocab_size: int, freebits_param=-1):
+def make_elbo_criterion(vocab_size: int, freebits_param=-1, mu_force_beta_param=1):
     likelihood_criterion = nn.CrossEntropyLoss(ignore_index=0, reduction='none')
-    print("Made a new loss-func")
 
     def elbo_criterion(
         prediction: torch.Tensor,

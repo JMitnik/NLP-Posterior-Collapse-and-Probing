@@ -47,6 +47,7 @@ class Config:
     # Hyperparameters
     param_wdropout_k: float = 1
     freebits_param: int = -1
+    mu_force_beta_param: int = 0 # Possible values should be [0, 2, 3, 5, 10]
 
     def __post_init__(self):
         if self.param_wdropout_k < 1:
@@ -54,3 +55,6 @@ class Config:
 
         if self.freebits_param > -1:
             print(f"{bcolors.WARNING}❗Freebits active, is set to {self.freebits_param} {bcolors.ENDC}")
+
+        if self.mu_force_beta_param > 0:
+            print(f"{bcolors.WARNING}❗Mu-force beta param active, is set to {self.mu_force_beta_param} {bcolors.ENDC}")

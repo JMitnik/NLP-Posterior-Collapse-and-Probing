@@ -32,6 +32,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--run_label', type=str, help='label for run')
 parser.add_argument('--nr_epochs', type=int, help='nr epochs to run for')
 parser.add_argument('--wdropout_k', type=float, help='dropout to apply')
+parser.add_argument('--mu_beta', type=float, help='mu_beta parameter')
 parser.add_argument('--freebits', type=float, help='freebits to apply')
 parser.add_argument('-f', type=str, help='Path to kernel json')
 
@@ -44,7 +45,7 @@ ARGS, unknown = parser.parse_known_args()
 ###
 config = Config(
     run_label=ARGS.run_label or '',
-    batch_size=16,
+    batch_size=64,
     embedding_size=50,
     rnn_hidden_size=50,
     vae_encoder_hidden_size=128,
@@ -52,9 +53,10 @@ config = Config(
     param_wdropout_k=ARGS.wdropout_k or 1,
     vae_latent_size=128,
     vocab_size=10000,
+    mu_force_beta_param=ARGS.mu_beta or 0,
     will_train_rnn=False,
     will_train_vae=True,
-    nr_epochs=ARGS.nr_epochs or 10,
+    nr_epochs=ARGS.nr_epochs or 1,
     results_path = 'results',
     train_path = '/data/02-21.10way.clean',
     valid_path = '/data/22.auto.clean',
@@ -127,11 +129,10 @@ vae_results_writer: SummaryWriter = SummaryWriter(comment=config.run_label)
 # Add VAE to tensorboard
 def make_sentence_decoder(tokenizer, temperature=1):
     def sentence_decoder(encoded_sentences):
-        # If its an embedding
+        # If its an embedding (predictions)
         if len(encoded_sentences.shape) == 3:
             sentence = encoded_sentences[0]
             output_idxs = []
-            decoded_sentence_words = []
 
             for word in sentence:
                 predicted_word_vector = F.softmax(word / temperature, 0)
@@ -140,7 +141,7 @@ def make_sentence_decoder(tokenizer, temperature=1):
 
             return tokenizer.decode(output_idxs)
 
-        # Else, its just the indices
+        # Else, its just the indices (targets)
         return tokenizer.decode(encoded_sentences[0])
 
     return sentence_decoder
@@ -155,9 +156,10 @@ if config.will_train_vae:
         nr_epochs=config.nr_epochs,
         device=config.device,
         results_writer=vae_results_writer,
-        freebits_param=config.freebits_param,
         config=config,
-        decoder=sentence_decoder
+        decoder=sentence_decoder,
+        freebits_param=config.freebits_param,
+        mu_force_beta_param=config.mu_force_beta_param
     )
 
 vae_results_writer.close()
