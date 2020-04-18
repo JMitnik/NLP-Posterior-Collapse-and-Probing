@@ -183,7 +183,7 @@ print(cd.tokenizer.decode(generated_sentence))
 ##-------------------- START VAE --------------------------------------------##
 #%%
 def make_elbo_criterion():
-    likelihood_criterion = nn.CrossEntropyLoss(ignore_index=0)
+    likelihood_criterion = nn.CrossEntropyLoss(ignore_index=0, reduction='none')
     print("Made a new loss-func")
 
     def elbo_criterion(
@@ -192,14 +192,18 @@ def make_elbo_criterion():
         prior_dist: torch.distributions.Distribution,
         posterior_dist: torch.distributions.Distribution
     ):
-        # TODO: Double check if this is how we do KL divergence properly
-        #kl_loss = torch.distributions.kl_divergence(prior_dist, posterior_dist).view(-1).mean(0).to(config.device)
-        kl_loss = D.kl_divergence(prior_dist, posterior_dist).view(-1).sum(0).to(config.device)
-        return
+        batch_size = prediction.shape[0]
+
+        kl_loss = torch.distributions.kl_divergence(prior_dist, posterior_dist).sum(1).to(config.device)
+
         negative_log_likelihood = likelihood_criterion(
             prediction.view([-1, config.vocab_size]),
             original.view(-1)
         ).to(config.device)
+
+        # Mean of all words for each batch item
+        negative_log_likelihood = negative_log_likelihood.view(prediction.shape[0], -1).sum(1)
+
         return negative_log_likelihood + kl_loss
 
     return elbo_criterion
@@ -229,6 +233,9 @@ def batch_train_vae(
         prior,
         posterior
     )
+
+    # Take mean of mini-batch loss
+    loss = loss.mean()
 
     # Backprop and gradient descent
     loss.backward()
@@ -268,12 +275,14 @@ for epoch in range(config.nr_epochs):
             train_batch,
             prior
         )
-        loss = loss / config.batch_size
-        i += 1
-        print(i)
+        loss = loss
         if i % 10 == 0:
             print(loss)
+        i += 1
+print('Done training the VAE')
 
 
+# %%
+print('Done')
 
 # %%
