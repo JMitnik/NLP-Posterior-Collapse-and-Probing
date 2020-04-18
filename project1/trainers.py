@@ -148,7 +148,7 @@ def train_vae(
             )
             loss, kl_loss, nlll, mu_loss = loss
             results_writer.add_scalar('train-vae/elbo-loss', loss, epoch * len(train_loader) + idx)
-            results_writer.add_scalar('train-vae/ppl', torch.tensor(torch.log(loss)), epoch * len(train_loader) + idx)
+            results_writer.add_scalar('train-vae/ppl', torch.log(torch.tensor(loss)), epoch * len(train_loader) + idx)
             results_writer.add_scalar('train-vae/kl-loss', kl_loss, epoch * len(train_loader) + idx)
             results_writer.add_scalar('train-vae/nll-loss', nlll, epoch * len(train_loader) + idx)
             results_writer.add_scalar('train-vae/mu-loss', mu_loss, epoch * len(train_loader) + idx)
