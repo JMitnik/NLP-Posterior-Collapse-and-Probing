@@ -147,7 +147,7 @@ import torch.distributions as D
 
 temperature = 1.0
 
-def impute_next_word(model, start="bank profits plummeted", max_length=20):
+def impute_next_word(model, start="as they parked out front and owen stepped out of the car , he could see", max_length=10):
     print(f'Start of the sentence: {start} || Max Length {max_length} .')
     with torch.no_grad():
         encoded_start = cd.tokenizer.encode(start, add_special_tokens=True)[:-1]
@@ -182,7 +182,7 @@ print(cd.tokenizer.decode(generated_sentence))
 # %%
 ##-------------------- START VAE --------------------------------------------##
 #%%
-def make_elbo_criterion():
+def make_elbo_criterion(freebits=-1):
     likelihood_criterion = nn.CrossEntropyLoss(ignore_index=0, reduction='none')
     print("Made a new loss-func")
 
@@ -195,6 +195,11 @@ def make_elbo_criterion():
         batch_size = prediction.shape[0]
 
         kl_loss = torch.distributions.kl_divergence(prior_dist, posterior_dist).sum(1).to(config.device)
+        # Free bit implementation
+        if freebits >= 0:
+            freebits_tensor = torch.full_like(kl_loss, fill_value=freebits, dtype=torch.float)
+            freebit_loss = torch.max(kl_loss, freebits_tensor)
+            kl_loss = freebit_loss
 
         negative_log_likelihood = likelihood_criterion(
             prediction.view([-1, config.vocab_size]),
@@ -259,7 +264,8 @@ vae = VAE(
     embedding_size=config.embedding_size
 ).to(config.device)
 
-elbo_criterion = make_elbo_criterion()
+### Give the value for free bits hhere
+elbo_criterion = make_elbo_criterion(freebits=5)
 prior = torch.distributions.Normal(
     torch.zeros(config.vae_latent_size),
     torch.ones(config.vae_latent_size)
