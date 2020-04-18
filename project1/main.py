@@ -141,16 +141,13 @@ for epoch in range(config.nr_epochs):
 print("Done with training!")
 
 
-
-# %%
-
 # %%
 import torch.nn.functional as F
 import torch.distributions as D
 
 temperature = 1.0
 
-def impute_next_word(model, start="", max_length=10):
+def impute_next_word(model, start="bank profits plummeted", max_length=20):
     print(f'Start of the sentence: {start} || Max Length {max_length} .')
     with torch.no_grad():
         encoded_start = cd.tokenizer.encode(start, add_special_tokens=True)[:-1]
@@ -196,8 +193,9 @@ def make_elbo_criterion():
         posterior_dist: torch.distributions.Distribution
     ):
         # TODO: Double check if this is how we do KL divergence properly
-        kl_loss = torch.distributions.kl_divergence(prior_dist, posterior_dist).view(-1).mean(0).to(config.device)
-
+        #kl_loss = torch.distributions.kl_divergence(prior_dist, posterior_dist).view(-1).mean(0).to(config.device)
+        kl_loss = D.kl_divergence(prior_dist, posterior_dist).view(-1).sum(0).to(config.device)
+        return
         negative_log_likelihood = likelihood_criterion(
             prediction.view([-1, config.vocab_size]),
             original.view(-1)
@@ -205,9 +203,6 @@ def make_elbo_criterion():
         return negative_log_likelihood + kl_loss
 
     return elbo_criterion
-
-# %%
-
 
 def batch_train_vae(
     model,
@@ -242,7 +237,7 @@ def batch_train_vae(
     return loss.item()
 
 
-# %% 
+ 
 # Playing around with VAEs now
 import models.VAE
 importlib.reload(models.VAE)
