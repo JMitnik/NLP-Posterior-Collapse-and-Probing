@@ -30,6 +30,9 @@ parser = argparse.ArgumentParser()
 
 # Parse arguments
 parser.add_argument('--run_label', type=str, help='label for run')
+parser.add_argument('--nr_epochs', type=int, help='nr epochs to run for')
+parser.add_argument('--wdropout_k', type=float, help='dropout to apply')
+parser.add_argument('--freebits', type=float, help='freebits to apply')
 parser.add_argument('-f', type=str, help='Path to kernel json')
 
 # Extract args
@@ -46,12 +49,12 @@ config = Config(
     rnn_hidden_size=50,
     vae_encoder_hidden_size=128,
     vae_decoder_hidden_size=1281,
-    param_wdropout_k=1,
+    param_wdropout_k=ARGS.wdropout_k or 1,
     vae_latent_size=128,
     vocab_size=10000,
     will_train_rnn=False,
     will_train_vae=True,
-    nr_epochs=1,
+    nr_epochs=ARGS.nr_epochs or 10,
     results_path = 'results',
     train_path = '/data/02-21.10way.clean',
     valid_path = '/data/22.auto.clean',
