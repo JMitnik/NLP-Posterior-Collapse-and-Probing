@@ -5,6 +5,7 @@
 from dataclasses import asdict
 import os
 import importlib
+from trainers import train_vae
 from nltk import Tree
 from nltk.treeprettyprinter import TreePrettyPrinter
 
@@ -88,12 +89,12 @@ def evaluate_model(model, data_loader, epoch):
         with torch.no_grad():
             input = batch[:, 0: -1].to(config.device)
             target = batch[:, 1:].to(config.device)
-        
+
             output = model(input)
 
             loss = criterion(output.reshape(-1, config.vocab_size), target.reshape(-1))
             total_loss += loss / len(batch)
-    
+
     total_loss = total_loss / len(data_loader)
     return total_loss, torch.log(total_loss)
 
@@ -126,7 +127,7 @@ for epoch in range(config.nr_epochs):
 
         # TODO: Improve training results, log also on and across epoch
         utils.store_training_results(writer, 'training' , loss, perplexity, total_iters)
-        
+
         if iter % print_every == 0:
             print(f'Iter: {iter}, {round(iter/no_iters*100)}/100% || Loss: {loss} || Perplexity {perplexity}')
         iter += 1
@@ -175,85 +176,14 @@ def impute_next_word(model, start="as they parked out front and owen stepped out
         print(f'Sentence Length: {len(sentence)}')
 
         return sentence
-            
+
 generated_sentence = impute_next_word(rnn_lm)
 print(cd.tokenizer.decode(generated_sentence))
 
 # %%
 ##-------------------- START VAE --------------------------------------------##
 #%%
-def make_elbo_criterion(freebits=-1):
-    likelihood_criterion = nn.CrossEntropyLoss(ignore_index=0, reduction='none')
-    print("Made a new loss-func")
-
-    def elbo_criterion(
-        prediction: torch.Tensor,
-        original: torch.Tensor,
-        prior_dist: torch.distributions.Distribution,
-        posterior_dist: torch.distributions.Distribution
-    ):
-        batch_size = prediction.shape[0]
-
-        kl_loss = torch.distributions.kl_divergence(prior_dist, posterior_dist).sum(1).to(config.device)
-        # Free bit implementation
-        if freebits >= 0:
-            freebits_tensor = torch.full_like(kl_loss, fill_value=freebits, dtype=torch.float)
-            freebit_loss = torch.max(kl_loss, freebits_tensor)
-            kl_loss = freebit_loss
-
-        negative_log_likelihood = likelihood_criterion(
-            prediction.view([-1, config.vocab_size]),
-            original.view(-1)
-        ).to(config.device)
-
-        # Mean of all words for each batch item
-        negative_log_likelihood = negative_log_likelihood.view(prediction.shape[0], -1).sum(1)
-
-        return negative_log_likelihood + kl_loss, kl_loss, negative_log_likelihood
-
-    return elbo_criterion
-
-def batch_train_vae(
-    model,
-    optimizer,
-    criterion,
-    train_batch,
-    prior,
-):
-    optimizer.zero_grad()
-
-    # Current assumption: to not predict past final token, we dont include the EOS tag in the input
-    inp = train_batch[:, 0:-1].to(config.device)
-
-    # Creat both prediction of next word and the posterior of which we sample Z.
-    preds, posterior = model(inp)
-
-    # Define target as the next word to predict
-    target = train_batch[:, 1:].to(config.device)
-
-    # Calc loss by using the ELBO-criterion
-    loss, kl_loss, nlll = criterion(
-        preds,
-        target,
-        prior,
-        posterior
-    )
-
-    # Take mean of mini-batch loss
-    loss = loss.mean()
-    kl_loss = kl_loss.mean()
-    nlll = nlll.mean()
-    # Backprop and gradient descent
-    loss.backward()
-    optimizer.step()
-
-    return loss.item(), kl_loss.item(), nlll.item()
-
-
- 
 # Playing around with VAEs now
-import models.VAE
-importlib.reload(models.VAE)
 from models.VAE import VAE
 vae = VAE(
     encoder_hidden_size=config.vae_encoder_hidden_size,
@@ -264,32 +194,7 @@ vae = VAE(
     embedding_size=config.embedding_size
 ).to(config.device)
 
-### Give the value for free bits hhere
-elbo_criterion = make_elbo_criterion(freebits=5)
-prior = torch.distributions.Normal(
-    torch.zeros(config.vae_latent_size),
-    torch.ones(config.vae_latent_size)
-)
+optimizer = torch.optim.Adam(params=vae.parameters())
+nr_epochs = 10
 
-for epoch in range(config.nr_epochs):
-    print (epoch)
-    i = 0
-    for train_batch in train_loader:
-        loss = batch_train_vae(
-            vae,
-            optim,
-            elbo_criterion,
-            train_batch,
-            prior
-        )
-        loss, kl_loss, nlll = loss
-        if i % 10 == 0:
-            print(f'iteration: {i} || KL Loss: {kl_loss} || NLLL: {nlll} || Total: {loss}')
-        i += 1
-print('Done training the VAE')
-
-
-# %%
-print('Done')
-
-# %%
+train_vae(vae, optimizer, nr_epochs, train_loader, 5)
