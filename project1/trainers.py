@@ -1,10 +1,11 @@
+from config import Config
 from torch.utils.data.dataloader import DataLoader
 import torch.nn as nn
 from torch.utils.tensorboard.writer import SummaryWriter
 from losses import make_elbo_criterion
 from models.VAE import VAE
+from models.RNNLM import RNNLM
 import torch
-import utils
 
 def train_batch_rnn(model, optimizer, criterion, train_batch, device):
     inp = train_batch[:, 0:-1].to(device)
@@ -25,7 +26,7 @@ def train_batch_rnn(model, optimizer, criterion, train_batch, device):
 
 
 def train_rnn(
-    model: RNN,
+    model: RNNLM,
     optimizer,
     train_loader: DataLoader,
     nr_epochs: int,
@@ -69,7 +70,7 @@ def train_rnn(
     print("Done with training!")
 
 
-def train_batch_vae(model, optimizer, criterion, train_batch, prior, device):
+def train_batch_vae(model, optimizer, criterion, train_batch, prior, device, writer):
     """
     Trains single batch of VAE
     """
@@ -101,7 +102,7 @@ def train_batch_vae(model, optimizer, criterion, train_batch, prior, device):
     loss.backward()
     optimizer.step()
 
-    return loss.item(), kl_loss.item(), nlll.item()
+    return (loss.item(), kl_loss.item(), nlll.item()), preds
 
 def train_vae(
     model: VAE,
@@ -110,7 +111,9 @@ def train_vae(
     nr_epochs: int,
     device: str,
     results_writer: SummaryWriter,
-    freebits_param=-1
+    config: Config,
+    decoder,
+    freebits_param=-1,
 ):
     vocab_size = model.vocab_size
     loss_fn = make_elbo_criterion(vocab_size, freebits_param)
@@ -123,11 +126,30 @@ def train_vae(
     for epoch in range(nr_epochs):
         print (epoch)
         i = 0
-        for train_batch in train_loader:
-            loss = train_batch_vae(model, optimizer, loss_fn, train_batch, prior, device)
+        for idx, train_batch in enumerate(train_loader):
+            loss, preds = train_batch_vae(
+                model,
+                optimizer,
+                loss_fn,
+                train_batch,
+                prior,
+                device,
+                results_writer
+            )
             loss, kl_loss, nlll = loss
+            results_writer.add_scalar('train-vae/total-loss', loss, epoch * len(train_loader) + idx)
+            results_writer.add_scalar('train-vae/kl-loss', kl_loss, epoch * len(train_loader) + idx)
+            results_writer.add_scalar('train-vae/nll-loss', nlll, epoch * len(train_loader) + idx)
 
             if i % 10 == 0:
                 print(f'iteration: {i} || KL Loss: {kl_loss} || NLLL: {nlll} || Total: {loss}')
+
+            # Every 100 iterations, predict a sentence and check the truth
+            if i % 100 == 0:
+                decoded_first_pred = decoder(preds) # TODO: Cutt-off after sentence length?
+                decoded_first_true = decoder(train_batch[:, 1:])
+                results_writer.add_text(f'it {epoch * len(train_loader) + idx}: prediction', decoded_first_pred)
+                results_writer.add_text(f'it {epoch * len(train_loader) + idx}: truth', decoded_first_true)
+
             i += 1
     print('Done training the VAE')

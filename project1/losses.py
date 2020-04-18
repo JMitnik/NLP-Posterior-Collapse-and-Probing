@@ -11,9 +11,8 @@ def make_elbo_criterion(vocab_size: int, freebits_param=-1):
         prior_dist: torch.distributions.Distribution,
         posterior_dist: torch.distributions.Distribution
     ):
-        batch_size = prediction.shape[0]
-
         kl_loss = torch.distributions.kl_divergence(prior_dist, posterior_dist).sum(1).to(prediction.device)
+
         # Free bit implementation
         if freebits_param >= 0:
             freebits_tensor = torch.full_like(kl_loss, fill_value=freebits_param, dtype=torch.float)

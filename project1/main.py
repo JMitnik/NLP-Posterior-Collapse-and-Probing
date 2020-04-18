@@ -1,6 +1,5 @@
 # %% [markdown]
 # ## Imports
-
 from dataclasses import asdict
 import os
 import importlib
@@ -11,7 +10,7 @@ from nltk.treeprettyprinter import TreePrettyPrinter
 # Model-related imports
 import torch
 import torch.nn as nn
-import torch.functional as F
+import torch.nn.functional as F
 import models.RNNLM
 importlib.reload(models.RNNLM)
 from models.RNNLM import RNNLM
@@ -24,24 +23,36 @@ from torch.utils.tensorboard.writer import SummaryWriter
 from evaluations import generate_next_words
 from customdata import CustomData
 
+#%%
+import argparse
+
+parser = argparse.ArgumentParser()
+
+# Parse arguments
+parser.add_argument('--run_label', type=str, help='label for run')
+parser.add_argument('-f', type=str, help='Path to kernel json')
+
+# Extract args
+ARGS, unknown = parser.parse_known_args()
+
 # %%
 ###
 ### Data definition
 ###
-
 config = Config(
+    run_label=ARGS.run_label or '',
     batch_size=16,
     embedding_size=50,
     rnn_hidden_size=50,
     vae_encoder_hidden_size=128,
     vae_decoder_hidden_size=1281,
-    param_wdropout_k=0.5,
+    param_wdropout_k=1,
     vae_latent_size=128,
     vocab_size=10000,
     will_train_rnn=False,
     will_train_vae=True,
     nr_epochs=1,
-    results_path = '/results/',
+    results_path = 'results',
     train_path = '/data/02-21.10way.clean',
     valid_path = '/data/22.auto.clean',
     test_path  = '/data/23.auto.clean',
@@ -87,6 +98,9 @@ generated_sentence = generate_next_words(rnn_lm, cd, device=config.device)
 print(cd.tokenizer.decode(generated_sentence))
 
 # %%
+import models.VAE
+import importlib
+importlib.reload(models.VAE)
 ###
 ###-------------------- START VAE -----------------------##
 ###
@@ -105,8 +119,30 @@ optimizer = torch.optim.Adam(params=vae.parameters())
 
 # Initalize results writer
 path_to_results = f'{config.results_path}/vae'
-vae_results_writer: SummaryWriter = SummaryWriter(path_to_results)
-vae_results_writer.add_graph(vae)
+vae_results_writer: SummaryWriter = SummaryWriter(comment=config.run_label)
+
+# Add VAE to tensorboard
+def make_sentence_decoder(tokenizer, temperature=1):
+    def sentence_decoder(encoded_sentences):
+        # If its an embedding
+        if len(encoded_sentences.shape) == 3:
+            sentence = encoded_sentences[0]
+            output_idxs = []
+            decoded_sentence_words = []
+
+            for word in sentence:
+                predicted_word_vector = F.softmax(word / temperature, 0)
+                vector_sampler = torch.distributions.Categorical(predicted_word_vector)
+                output_idxs.append(int(vector_sampler.sample()))
+
+            return tokenizer.decode(output_idxs)
+
+        # Else, its just the indices
+        return tokenizer.decode(encoded_sentences[0])
+
+    return sentence_decoder
+
+sentence_decoder = make_sentence_decoder(cd.tokenizer, 1)
 
 if config.will_train_vae:
     train_vae(
@@ -116,5 +152,9 @@ if config.will_train_vae:
         nr_epochs=config.nr_epochs,
         device=config.device,
         results_writer=vae_results_writer,
-        freebits_param=config.freebits_param
-)
+        freebits_param=config.freebits_param,
+        config=config,
+        decoder=sentence_decoder
+    )
+
+vae_results_writer.close()

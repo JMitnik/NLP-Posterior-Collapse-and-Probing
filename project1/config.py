@@ -10,6 +10,9 @@ class bcolors:
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
 
+
+
+
 @dataclass
 class Config:
     # Sizes in general
@@ -25,6 +28,9 @@ class Config:
     results_path: str
 
     device: str
+
+    # Run label
+    run_label: str
 
     # RNN sizes (optionally 0)
     rnn_hidden_size: int = 0

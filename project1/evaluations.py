@@ -1,4 +1,6 @@
 import torch
+import torch.distributions as D
+import torch.nn.functional as F
 
 def generate_next_words(
     model,

@@ -30,6 +30,8 @@ class VAE(nn.Module):
         self.param_wdropout_k: float = param_wdropout_k
         self.token_unknown_index: int = token_unknown_index
 
+        self.graph_mode: bool = False
+
     def make_distribution(self, mu, sigma):
         return torch.distributions.Normal(mu, sigma)
 
@@ -77,6 +79,9 @@ class VAE(nn.Module):
         z = distribution.rsample().to(x.device)
 
         pred = self.decoder(embeds, z)
+
+        if self.graph_mode:
+            return pred
 
         return pred, distribution
 

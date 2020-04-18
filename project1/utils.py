@@ -5,7 +5,7 @@ def store_training_results(
     writer: SummaryWriter,
     name: str,
     loss: torch.Tensor,
-    perplexity: torch.Tensor, 
+    perplexity: torch.Tensor,
     epoch_nr: int
 ):
     """
