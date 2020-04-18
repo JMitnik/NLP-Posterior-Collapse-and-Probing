@@ -22,10 +22,16 @@ class Config:
     train_path: str
     valid_path: str
     test_path: str
+    results_path: str
+
     device: str
 
     # RNN sizes (optionally 0)
     rnn_hidden_size: int = 0
+
+    # Commands
+    will_train_rnn: bool = False
+    will_train_vae: bool = True
 
     # VAE sizes
     vae_encoder_hidden_size: int = 0
@@ -33,8 +39,12 @@ class Config:
     vae_latent_size: int = 0
 
     # Hyperparameters
-    param_wdropout_k: int = 1
+    param_wdropout_k: float = 1
+    freebits_param: int = -1
 
     def __post_init__(self):
         if self.param_wdropout_k < 1:
             print(f"{bcolors.WARNING}❗Word-dropout active, is set to {self.param_wdropout_k} {bcolors.ENDC}")
+
+        if self.freebits_param > -1:
+            print(f"{bcolors.WARNING}❗Freebits active, is set to {self.freebits_param} {bcolors.ENDC}")

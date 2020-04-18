@@ -1,22 +1,88 @@
+from torch.utils.data.dataloader import DataLoader
+import torch.nn as nn
+from torch.utils.tensorboard.writer import SummaryWriter
 from losses import make_elbo_criterion
 from models.VAE import VAE
 import torch
+import utils
 
-def train_batch_vae(model, optimizer, criterion, train_batch, prior):
+def train_batch_rnn(model, optimizer, criterion, train_batch, device):
+    inp = train_batch[:, 0:-1].to(device)
+
+    # Current assumption: to not predikct past final token, we dont include the EOS tag in the input
+    output = model(inp)
+
+    # One hot target and shift by one (so first word matches second token)
+    # target = torch.nn.functional.one_hot(input_tensor, num_classes=vocab_size)
+    target = train_batch[:, 1:].to(device)
+
+    # Calc loss and perform backprop
+    loss = criterion(output.reshape(-1, model.vocab_size), target.reshape(-1))
+    loss.backward()
+    optimizer.step()
+
+    return loss
+
+
+def train_rnn(
+    model: RNN,
+    optimizer,
+    train_loader: DataLoader,
+    nr_epochs: int,
+    device: str,
+    results_writer: SummaryWriter,
+):
+    loss_fn = nn.CrossEntropyLoss(
+        ignore_index=0,
+        reduction='sum'
+    )
+
+    for epoch in range(nr_epochs):
+        print(f'Epoch: {epoch + 1} / {nr_epochs}')
+        it = 0
+        for index, train_batch in enumerate(train_loader):
+            model.train()
+            loss = train_batch_rnn(model, optimizer, loss_fn, train_batch, device)
+            loss = loss / train_batch.shape[0]
+            perplexity = torch.log(loss)
+
+            # # TODO: Improve training results, log also on and across epoch
+            # utils.store_training_results(
+            #     results_writer,
+            #     'training',
+            #     loss,
+            #     perplexity,
+            #     total_iters
+            # )
+
+            # if it % print_every == 0:
+            #     print(f'Iter: {it}, {round(it/no_iters*100)}/100% || Loss: {loss} || Perplexity {perplexity}')
+            # iter += 1
+            # total_iters += 1
+
+            # if iter % validate_every == 0:
+            #     print("Evaluating...")
+            #     valid_loss, valid_perp = evaluate_model(rnn_lm, valid_loader, epoch)
+            #     print(f'Validation -- Iter: {iter}, {round(iter/no_iters*100)}/100% || Loss: {loss} || Perplexity {perplexity}')
+            #     utils.store_training_results(writer, 'validation' , valid_loss, valid_perp, total_iters)
+        print('\n\n')
+    print("Done with training!")
+
+
+def train_batch_vae(model, optimizer, criterion, train_batch, prior, device):
     """
     Trains single batch of VAE
     """
-
     optimizer.zero_grad()
 
     # Current assumption: to not predict past final token, we dont include the EOS tag in the input
-    inp = train_batch[:, 0:-1].to(config.device)
+    inp = train_batch[:, 0:-1].to(device)
 
     # Creat both prediction of next word and the posterior of which we sample Z.
     preds, posterior = model(inp)
 
     # Define target as the next word to predict
-    target = train_batch[:, 1:].to(config.device)
+    target = train_batch[:, 1:].to(device)
 
     # Calc loss by using the ELBO-criterion
     loss, kl_loss, nlll = criterion(
@@ -30,15 +96,24 @@ def train_batch_vae(model, optimizer, criterion, train_batch, prior):
     loss = loss.mean()
     kl_loss = kl_loss.mean()
     nlll = nlll.mean()
+
     # Backprop and gradient descent
     loss.backward()
     optimizer.step()
 
     return loss.item(), kl_loss.item(), nlll.item()
 
-def train_vae(model: VAE, optimizer, nr_epochs, train_loader, freebits_param):
+def train_vae(
+    model: VAE,
+    optimizer,
+    train_loader: DataLoader,
+    nr_epochs: int,
+    device: str,
+    results_writer: SummaryWriter,
+    freebits_param=-1
+):
     vocab_size = model.vocab_size
-    loss_fn = make_elbo_criterion(vocab_size, freebits_param=5)
+    loss_fn = make_elbo_criterion(vocab_size, freebits_param)
 
     prior = torch.distributions.Normal(
         torch.zeros(model.latent_size),
@@ -49,7 +124,7 @@ def train_vae(model: VAE, optimizer, nr_epochs, train_loader, freebits_param):
         print (epoch)
         i = 0
         for train_batch in train_loader:
-            loss = train_batch_vae(model, optimizer, loss_fn, train_batch, prior)
+            loss = train_batch_vae(model, optimizer, loss_fn, train_batch, prior, device)
             loss, kl_loss, nlll = loss
 
             if i % 10 == 0:

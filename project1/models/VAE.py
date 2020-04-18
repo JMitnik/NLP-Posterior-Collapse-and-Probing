@@ -14,7 +14,7 @@ class VAE(nn.Module):
         latent_size: int,
         vocab_size: int,
         embedding_size: int,
-        param_wdropout_k: int = 1,
+        param_wdropout_k: float = 1,
         token_unknown_index: int = 0
     ):
         super().__init__()
@@ -27,7 +27,7 @@ class VAE(nn.Module):
         self.encoder: Encoder = Encoder(vocab_size, embedding_size, encoder_hidden_size, latent_size)
         self.decoder: Decoder = Decoder(vocab_size, embedding_size, latent_size, decoder_hidden_size)
 
-        self.param_wdropout_k: int = param_wdropout_k
+        self.param_wdropout_k: float = param_wdropout_k
         self.token_unknown_index: int = token_unknown_index
 
     def make_distribution(self, mu, sigma):
@@ -35,9 +35,9 @@ class VAE(nn.Module):
 
     def apply_word_dropout(self, input_seq):
         # Make bernoulli distribution that takes k as its probability
-        
+
         bern = torch.distributions.Bernoulli(torch.tensor([self.param_wdropout_k]))
-        
+
         # Sample mask that is (batch_size x nr_words)
         mask = bern.sample(torch.tensor([
             input_seq.shape[0],
@@ -49,23 +49,20 @@ class VAE(nn.Module):
         return input_seq * mask
 
     def forward(self, x):
-        
+
         # Apply some dropout here
         if self.param_wdropout_k < 1:
             """
-            Only problem still is the the BOS will also be turned 
+            Only problem still is the the BOS will also be turned
             into an UNK token sometimes
             """
             mask = torch.full_like(x, fill_value=self.param_wdropout_k, dtype=float)
             mask = torch.distributions.Bernoulli(mask)
             mask = mask.sample().eq(1)
-            pad_mask = x.ne(0) 
+            pad_mask = x.ne(0)
             indexes = pad_mask.__and__(mask) # Compare two vector and do an logical AND operator
             masked_x = x.masked_fill(indexes, value=3) # Replace all value for 3(UNK) when true
             x = masked_x
-            # print(masked_x)
-            # print('word dropout')
-            #embeds = self.apply_word_dropout(embeds)
 
         embeds = self.embeddings(x)
         mu, sigma = self.encoder(embeds)
