@@ -49,10 +49,12 @@ class VAE(nn.Module):
         return input_seq * mask
 
     def forward(self, x):
-        # print(x)
-        # print('---------------------')
+        
         # Apply some dropout here
         if self.param_wdropout_k < 1:
+            """
+            Only problem still is the the BOS will also be turned into a UNK token
+            """
             mask = torch.full_like(x, fill_value=self.param_wdropout_k, dtype=float)
             mask = torch.distributions.Bernoulli(mask)
             mask = mask.sample().eq(1)
