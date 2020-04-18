@@ -60,8 +60,8 @@ class VAE(nn.Module):
             mask = torch.distributions.Bernoulli(mask)
             mask = mask.sample().eq(1)
             pad_mask = x.ne(0) 
-            indexes = pad_mask.__and__(mask)
-            masked_x = x.masked_fill(indexes, value=3)
+            indexes = pad_mask.__and__(mask) # Compare two vector and do an logical AND operator
+            masked_x = x.masked_fill(indexes, value=3) # Replace all value for 3(UNK) when true
             x = masked_x
             # print(masked_x)
             # print('word dropout')
