@@ -8,7 +8,7 @@ from models.RNNLM import RNNLM
 import torch
 from evaluations import evaluate_VAE, evaluate_rnn
 
-validate_every = 100 # how often we want to validate our models
+validate_every = 250 # how often we want to validate our models
 print_every = 100 # how often we want some results
 
 def train_batch_rnn(model, optimizer, criterion, train_batch, device):
@@ -57,31 +57,17 @@ def train_rnn(
             results_writer.add_scalar('train-rnn/ppl', perplexity, it)
 
 
-            if it % 100 == 0:
+            if it % print_every == 0:
                 print(f'Iter: {it}, {round(idx/len(train_loader)*100)}/100% || Loss: {loss} || Perplexity {perplexity}')
             
-            if it % 250 == 0:
-                print("Validating...")
+            if it % validate_every == 0:
+                print("Validating model")
                 valid_loss, valid_perp = evaluate_rnn(model, valid_loader, it, device, loss_fn)
-                print(f'Validation -- Iter: {it} || Loss: {loss} || Perplexity {perplexity}')
+                print(f'Validation results || Loss: {loss} || Perplexity {perplexity}')
                 results_writer.add_scalar('valid-rnn/loss' , valid_loss, it)
                 results_writer.add_scalar('valid-rnn/ppl' , valid_perp, it)
                 model.train()
-        # # TODO: Improve training results, log also on and across epoch
-        # utils.store_training_results(
-        #     results_writer,
-        #     'training',
-        #     loss,
-        #     perplexity,
-        #     total_iters
-        # )
 
-        #     if iter % validate_every == 0:
-        #         print("Evaluating...")
-        #         valid_loss, valid_perp = evaluate_model(rnn_lm, valid_loader, epoch)
-        #         print(f'Validation -- Iter: {iter}, {round(iter/no_iters*100)}/100% || Loss: {loss} || Perplexity {perplexity}')
-        #         utils.store_training_results(writer, 'validation' , valid_loss, valid_perp, total_iters)
-        # print('\n\n')
     print("Done with training!")
 
 
@@ -169,17 +155,17 @@ def train_vae(
             results_writer.add_scalar('train-vae/nll-loss', nlll, epoch * len(train_loader) + idx)
             results_writer.add_scalar('train-vae/mu-loss', mu_loss, epoch * len(train_loader) + idx)
 
-            if idx % 10 == 0:
+            if idx % print_every == 0:
                 print(f'iteration: {epoch * len(train_loader) + idx} || KL Loss: {kl_loss} || NLLL: {nlll} || MuLoss: {mu_loss} || Total: {loss}')
 
             # Every 100 iterations, predict a sentence and check the truth
-            if idx % 100 == 0:
+            if idx % print_every == 0:
                 decoded_first_pred = decoder(preds) # TODO: Cutt-off after sentence length?
                 decoded_first_true = decoder(train_batch[:, 1:])
                 results_writer.add_text(f'it {epoch * len(train_loader) + idx}: prediction', decoded_first_pred)
                 results_writer.add_text(f'it {epoch * len(train_loader) + idx}: truth', decoded_first_true)
 
-            if idx % 100 == 0:
+            if idx % validate_every == 0:
                 print('Validating model')
                 evaluate_VAE(model, 
                     valid_loader, 
