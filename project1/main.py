@@ -45,7 +45,7 @@ ARGS, unknown = parser.parse_known_args()
 ###
 config = Config(
     run_label=ARGS.run_label or '',
-    batch_size=64,
+    batch_size=16,
     embedding_size=50,
     rnn_hidden_size=50,
     vae_encoder_hidden_size=128,
@@ -153,6 +153,7 @@ if config.will_train_vae:
         vae,
         optimizer,
         train_loader,
+        valid_loader,
         nr_epochs=config.nr_epochs,
         device=config.device,
         results_writer=vae_results_writer,
@@ -163,3 +164,6 @@ if config.will_train_vae:
     )
 
 vae_results_writer.close()
+
+
+# %%

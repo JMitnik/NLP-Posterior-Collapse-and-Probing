@@ -6,6 +6,7 @@ from losses import make_elbo_criterion
 from models.VAE import VAE
 from models.RNNLM import RNNLM
 import torch
+from evaluations import evaluate_VAE
 
 def train_batch_rnn(model, optimizer, criterion, train_batch, device):
     inp = train_batch[:, 0:-1].to(device)
@@ -116,6 +117,7 @@ def train_vae(
     model: VAE,
     optimizer,
     train_loader: DataLoader,
+    valid_loader: DataLoader,
     nr_epochs: int,
     device: str,
     results_writer: SummaryWriter,
@@ -134,7 +136,7 @@ def train_vae(
 
     for epoch in range(nr_epochs):
         print (epoch)
-        i = 0
+
         for idx, train_batch in enumerate(train_loader):
             loss, preds = train_batch_vae(
                 model,
@@ -153,15 +155,28 @@ def train_vae(
             results_writer.add_scalar('train-vae/nll-loss', nlll, epoch * len(train_loader) + idx)
             results_writer.add_scalar('train-vae/mu-loss', mu_loss, epoch * len(train_loader) + idx)
 
-            if i % 10 == 0:
-                print(f'iteration: {i} || KL Loss: {kl_loss} || NLLL: {nlll} || MuLoss: {mu_loss} || Total: {loss}')
+            if idx % 10 == 0:
+                print(f'iteration: {epoch * len(train_loader) + idx} || KL Loss: {kl_loss} || NLLL: {nlll} || MuLoss: {mu_loss} || Total: {loss}')
 
             # Every 100 iterations, predict a sentence and check the truth
-            if i % 100 == 0:
+            if idx % 100 == 0:
                 decoded_first_pred = decoder(preds) # TODO: Cutt-off after sentence length?
                 decoded_first_true = decoder(train_batch[:, 1:])
                 results_writer.add_text(f'it {epoch * len(train_loader) + idx}: prediction', decoded_first_pred)
                 results_writer.add_text(f'it {epoch * len(train_loader) + idx}: truth', decoded_first_true)
 
-            i += 1
+            if idx % 100 == 0:
+                print('Validating model')
+                evaluate_VAE(model, 
+                    valid_loader, 
+                    epoch, 
+                    device, 
+                    loss_fn, 
+                    mu_force_beta_param, 
+                    prior, 
+                    results_writer, 
+                    iteration = epoch * len(train_loader) + idx
+                )
+                model.train()
+
     print('Done training the VAE')
