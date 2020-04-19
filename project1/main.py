@@ -54,8 +54,8 @@ config = Config(
     vae_latent_size=128,
     vocab_size=10000,
     mu_force_beta_param=ARGS.mu_beta or 0,
-    will_train_rnn=False,
-    will_train_vae=True,
+    will_train_rnn=True,
+    will_train_vae=False,
     nr_epochs=ARGS.nr_epochs or 1,
     results_path = 'results',
     train_path = '/data/02-21.10way.clean',
@@ -89,6 +89,7 @@ if config.will_train_rnn:
         rnn_lm,
         optim,
         train_loader,
+        valid_loader,
         config.nr_epochs,
         config.device,
         rnn_results_writer

@@ -6,7 +6,10 @@ from losses import make_elbo_criterion
 from models.VAE import VAE
 from models.RNNLM import RNNLM
 import torch
-from evaluations import evaluate_VAE
+from evaluations import evaluate_VAE, evaluate_rnn
+
+validate_every = 100 # how often we want to validate our models
+print_every = 100 # how often we want some results
 
 def train_batch_rnn(model, optimizer, criterion, train_batch, device):
     inp = train_batch[:, 0:-1].to(device)
@@ -30,6 +33,7 @@ def train_rnn(
     model: RNNLM,
     optimizer,
     train_loader: DataLoader,
+    valid_loader: DataLoader,
     nr_epochs: int,
     device: str,
     results_writer: SummaryWriter,
@@ -41,33 +45,43 @@ def train_rnn(
 
     for epoch in range(nr_epochs):
         print(f'Epoch: {epoch + 1} / {nr_epochs}')
-        it = 0
-        for index, train_batch in enumerate(train_loader):
+
+        for idx, train_batch in enumerate(train_loader):
             model.train()
             loss = train_batch_rnn(model, optimizer, loss_fn, train_batch, device)
             loss = loss / train_batch.shape[0]
             perplexity = torch.log(loss)
 
-            # # TODO: Improve training results, log also on and across epoch
-            # utils.store_training_results(
-            #     results_writer,
-            #     'training',
-            #     loss,
-            #     perplexity,
-            #     total_iters
-            # )
+            it = epoch * len(train_loader) + idx
+            results_writer.add_scalar('train-rnn/loss', loss, it)
+            results_writer.add_scalar('train-rnn/ppl', perplexity, it)
 
-            # if it % print_every == 0:
-            #     print(f'Iter: {it}, {round(it/no_iters*100)}/100% || Loss: {loss} || Perplexity {perplexity}')
-            # iter += 1
-            # total_iters += 1
 
-            # if iter % validate_every == 0:
-            #     print("Evaluating...")
-            #     valid_loss, valid_perp = evaluate_model(rnn_lm, valid_loader, epoch)
-            #     print(f'Validation -- Iter: {iter}, {round(iter/no_iters*100)}/100% || Loss: {loss} || Perplexity {perplexity}')
-            #     utils.store_training_results(writer, 'validation' , valid_loss, valid_perp, total_iters)
-        print('\n\n')
+            if it % 100 == 0:
+                print(f'Iter: {it}, {round(idx/len(train_loader)*100)}/100% || Loss: {loss} || Perplexity {perplexity}')
+            
+            if it % 250 == 0:
+                print("Validating...")
+                valid_loss, valid_perp = evaluate_rnn(model, valid_loader, it, device, loss_fn)
+                print(f'Validation -- Iter: {it} || Loss: {loss} || Perplexity {perplexity}')
+                results_writer.add_scalar('valid-rnn/loss' , valid_loss, it)
+                results_writer.add_scalar('valid-rnn/ppl' , valid_perp, it)
+                model.train()
+        # # TODO: Improve training results, log also on and across epoch
+        # utils.store_training_results(
+        #     results_writer,
+        #     'training',
+        #     loss,
+        #     perplexity,
+        #     total_iters
+        # )
+
+        #     if iter % validate_every == 0:
+        #         print("Evaluating...")
+        #         valid_loss, valid_perp = evaluate_model(rnn_lm, valid_loader, epoch)
+        #         print(f'Validation -- Iter: {iter}, {round(iter/no_iters*100)}/100% || Loss: {loss} || Perplexity {perplexity}')
+        #         utils.store_training_results(writer, 'validation' , valid_loss, valid_perp, total_iters)
+        # print('\n\n')
     print("Done with training!")
 
 

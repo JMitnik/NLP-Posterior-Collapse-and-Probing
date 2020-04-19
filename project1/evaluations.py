@@ -40,7 +40,7 @@ def generate_next_words(
         return sentence
 
 
-def evaluate_model(
+def evaluate_rnn(
     model,
     data_loader,
     epoch,
