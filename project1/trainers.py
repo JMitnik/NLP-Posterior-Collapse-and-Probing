@@ -42,7 +42,8 @@ def train_rnn(
         ignore_index=0,
         reduction='sum'
     )
-
+    best_valid_loss = 1000
+    previous_valid_loss = 1000
     for epoch in range(nr_epochs):
         print(f'Epoch: {epoch + 1} / {nr_epochs}')
 
@@ -63,11 +64,18 @@ def train_rnn(
             if it % validate_every == 0:
                 print("Validating model")
                 valid_loss, valid_perp = evaluate_rnn(model, valid_loader, it, device, loss_fn)
-                print(f'Validation results || Loss: {loss} || Perplexity {perplexity}')
+                previous_valid_loss = valid_loss
+                if previous_valid_loss < best_valid_loss:
+                    print('New Best Validation score!')
+                    best_valid_loss = previous_valid_loss
+                    # have to save model
+
+                print(f'Validation results || Loss: {valid_loss} || Perplexity {valid_perp}')
                 results_writer.add_scalar('valid-rnn/loss' , valid_loss, it)
                 results_writer.add_scalar('valid-rnn/ppl' , valid_perp, it)
+                print()
                 model.train()
-
+        print('\n\n')
     print("Done with training!")
 
 

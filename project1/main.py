@@ -54,9 +54,9 @@ config = Config(
     vae_latent_size=128,
     vocab_size=10000,
     mu_force_beta_param=ARGS.mu_beta or 0,
-    will_train_rnn=False,
-    will_train_vae=True,
-    nr_epochs=ARGS.nr_epochs or 1,
+    will_train_rnn=True,
+    will_train_vae=False,
+    nr_epochs=ARGS.nr_epochs or 5,
     results_path = 'results',
     train_path = '/data/02-21.10way.clean',
     valid_path = '/data/22.auto.clean',
@@ -79,7 +79,7 @@ criterion = nn.CrossEntropyLoss(
     ignore_index=0,
     reduction='sum'
 )
-optim = torch.optim.Adam(rnn_lm.parameters())
+optim = torch.optim.Adam(rnn_lm.parameters(), lr=0.00001)
 
 path_to_results = f'{config.results_path}/rnn'
 rnn_results_writer = SummaryWriter()
@@ -160,7 +160,7 @@ if config.will_train_vae:
         results_writer=vae_results_writer,
         config=config,
         decoder=sentence_decoder,
-        freebits_param=5,#config.freebits_param,
+        freebits_param=config.freebits_param,
         mu_force_beta_param=config.mu_force_beta_param
     )
 
