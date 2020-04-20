@@ -4,7 +4,3 @@ dgm_for_text_data/
 project1/__pycache__/tokenizers.cpython-37.pyc
 project1/__pycache__/tokenizers.cpython-38.pyc
 *.pyc
-project1/models/saved_models/rnn_best
-project1/models/saved_models/rnn_recent
-project1/models/saved_models/vae_best
-project1/models/saved_models/vae_recent
