@@ -126,12 +126,10 @@ def evaluate_VAE(
     total_nlll = total_nlll / len(data_loader)
     total_mu_loss = total_mu_loss / len(data_loader)
 
-    print(iteration)
     results_writer.add_scalar(f'{eval_type}-vae/elbo-loss', total_loss, iteration)
     results_writer.add_scalar(f'{eval_type}-vae/ppl', torch.log(torch.tensor(total_loss)), iteration)
     results_writer.add_scalar(f'{eval_type}-vae/kl-loss', total_kl_loss, iteration)
     results_writer.add_scalar(f'{eval_type}-vae/nll-loss', total_nlll, iteration)
     results_writer.add_scalar(f'{eval_type}-vae/mu-loss', total_mu_loss, iteration)
 
-    print(f'{eval_type} || total elbo loss: {total_loss} ||total  kl loss: {total_kl_loss} || total nlll {total_nlll} || total mu loss {total_mu_loss}')
-    print('Done Evaluating')
+    return total_loss, total_kl_loss, total_nlll, total_mu_loss

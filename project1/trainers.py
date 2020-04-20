@@ -7,6 +7,7 @@ from models.VAE import VAE
 from models.RNNLM import RNNLM
 import torch
 from evaluations import evaluate_VAE, evaluate_rnn
+from utils import save_model
 
 validate_every = 250 # how often we want to validate our models
 print_every = 100 # how often we want some results
@@ -60,16 +61,19 @@ def train_rnn(
 
             if it % print_every == 0:
                 print(f'Iter: {it}, {round(idx/len(train_loader)*100)}/100% || Loss: {loss} || Perplexity {perplexity}')
-            
+            # Save the most recent model
+            save_model('rnn_recent', model, optimizer, it)
             if it % validate_every == 0:
                 print("Validating model")
                 valid_loss, valid_perp = evaluate_rnn(model, valid_loader, it, device, loss_fn)
                 previous_valid_loss = valid_loss
+                
+                # Check if the model is better and save
                 if previous_valid_loss < best_valid_loss:
                     print('New Best Validation score!')
                     best_valid_loss = previous_valid_loss
-                    # have to save model
-
+                    save_model('rnn_best', model, optimizer, it)
+                
                 print(f'Validation results || Loss: {valid_loss} || Perplexity {valid_perp}')
                 results_writer.add_scalar('valid-rnn/loss' , valid_loss, it)
                 results_writer.add_scalar('valid-rnn/ppl' , valid_perp, it)
@@ -134,6 +138,9 @@ def train_vae(
     freebits_param=-1,
     mu_force_beta_param=1,
 ):
+    best_valid_loss = 1000
+    previous_valid_loss = 1000
+
     vocab_size = model.vocab_size
     loss_fn = make_elbo_criterion(vocab_size, freebits_param, mu_force_beta_param)
 
@@ -156,26 +163,31 @@ def train_vae(
                 mu_force_beta_param,
                 results_writer
             )
+            it = epoch * len(train_loader) + idx
+
             loss, kl_loss, nlll, mu_loss = loss
-            results_writer.add_scalar('train-vae/elbo-loss', loss, epoch * len(train_loader) + idx)
-            results_writer.add_scalar('train-vae/ppl', torch.log(torch.tensor(loss)), epoch * len(train_loader) + idx)
-            results_writer.add_scalar('train-vae/kl-loss', kl_loss, epoch * len(train_loader) + idx)
-            results_writer.add_scalar('train-vae/nll-loss', nlll, epoch * len(train_loader) + idx)
-            results_writer.add_scalar('train-vae/mu-loss', mu_loss, epoch * len(train_loader) + idx)
+            results_writer.add_scalar('train-vae/elbo-loss', loss, it)
+            results_writer.add_scalar('train-vae/ppl', torch.log(torch.tensor(loss)), it)
+            results_writer.add_scalar('train-vae/kl-loss', kl_loss, it)
+            results_writer.add_scalar('train-vae/nll-loss', nlll, it)
+            results_writer.add_scalar('train-vae/mu-loss', mu_loss, it)
 
             if idx % print_every == 0:
-                print(f'iteration: {epoch * len(train_loader) + idx} || KL Loss: {kl_loss} || NLLL: {nlll} || MuLoss: {mu_loss} || Total: {loss}')
+                print(f'iteration: {it} || KL Loss: {kl_loss} || NLLL: {nlll} || MuLoss: {mu_loss} || Total: {loss}')
+
+            # Save model
+            save_model('vae_recent', model, optimizer, it)
 
             # Every 100 iterations, predict a sentence and check the truth
             if idx % print_every == 0:
                 decoded_first_pred = decoder(preds) # TODO: Cutt-off after sentence length?
                 decoded_first_true = decoder(train_batch[:, 1:])
-                results_writer.add_text(f'it {epoch * len(train_loader) + idx}: prediction', decoded_first_pred)
-                results_writer.add_text(f'it {epoch * len(train_loader) + idx}: truth', decoded_first_true)
+                results_writer.add_text(f'it {it}: prediction', decoded_first_pred)
+                results_writer.add_text(f'it {it}: truth', decoded_first_true)
 
             if idx % validate_every == 0:
                 print('Validating model')
-                evaluate_VAE(model, 
+                total_loss, total_kl_loss, total_nlll, total_mu_loss = evaluate_VAE(model, 
                     valid_loader, 
                     epoch, 
                     device, 
@@ -185,6 +197,16 @@ def train_vae(
                     results_writer, 
                     iteration = epoch * len(train_loader) + idx
                 )
-                model.train()
 
+                previous_valid_loss = total_loss
+                
+                # Check if the model is better and save
+                if previous_valid_loss < best_valid_loss:
+                    print('New Best Validation score!')
+                    best_valid_loss = previous_valid_loss
+                    save_model('vae_best', model, optimizer, it)
+                    print(f'Validation Results || Elbo loss: {total_loss} || KL loss: {total_kl_loss} || NLLL {total_nlll} || MU loss {total_mu_loss}')
+                    print()
+                model.train()
+        print('\n\n')
     print('Done training the VAE')
