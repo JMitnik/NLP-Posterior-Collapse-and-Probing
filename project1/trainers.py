@@ -83,7 +83,7 @@ def train_rnn(
     print("Done with training!")
 
 
-def train_batch_vae(model, optimizer, criterion, train_batch, prior, device, mu_force_beta_param, writer):
+def train_batch_vae(model, optimizer, criterion, train_batch, prior, device, mu_force_beta_param, writer, it):
     """
     Trains single batch of VAE
     """
@@ -110,13 +110,23 @@ def train_batch_vae(model, optimizer, criterion, train_batch, prior, device, mu_
     loss = loss.mean()
     kl_loss = kl_loss.mean()
     nlll = nlll.mean()
+    # print(posterior)
+    # print(posterior.loc)
+    # print(posterior.loc.flatten())
+    flattend_post = posterior.loc.flatten()
+    mu_max = torch.max(flattend_post)
+    mu_min = torch.min(flattend_post)
 
+
+    writer.add_histogram('train-vae/mu', flattend_post, it)
+    
     # Now add to the loss mu force loss
-    batch_mean_vectors = posterior.loc
-    avg_batch_mean_vector = batch_mean_vectors.mean(0)
+    batch_mean_vectors = posterior.loc # mu(n) mu vector of nth sample
+    avg_batch_mean_vector = batch_mean_vectors.mean(0) # mu(stripe) mean of vectors mu
+    # Shouldn't it be tensordot.... / (batch.shape[0] * 2) ??
     mu_force_loss_var = torch.tensordot(batch_mean_vectors - avg_batch_mean_vector, batch_mean_vectors - avg_batch_mean_vector, 2) / train_batch.shape[0] / 2
     mu_force_loss = torch.max(torch.tensor([0.0]), mu_force_beta_param - mu_force_loss_var).to(device)
-
+    
     loss = loss + mu_force_loss
 
     # Backprop and gradient descent
@@ -153,6 +163,8 @@ def train_vae(
         print (epoch)
 
         for idx, train_batch in enumerate(train_loader):
+            it = epoch * len(train_loader) + idx
+
             loss, preds = train_batch_vae(
                 model,
                 optimizer,
@@ -161,9 +173,10 @@ def train_vae(
                 prior,
                 device,
                 mu_force_beta_param,
-                results_writer
+                results_writer,
+                it
             )
-            it = epoch * len(train_loader) + idx
+            
 
             loss, kl_loss, nlll, mu_loss = loss
             results_writer.add_scalar('train-vae/elbo-loss', loss, it)
