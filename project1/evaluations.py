@@ -63,13 +63,13 @@ def evaluate_rnn(
             output = model(input)
 
             loss = criterion(output.reshape(-1, model.vocab_size), target.reshape(-1))
-            
-            all_words = torch.sum(sl).item()
-            perplexity = np.exp(loss.item() / all_words) / batch.size(0)
+     
+            all_words = torch.sum(sl)
+            perplexity = torch.exp(loss / all_words) #/ batch.size(0)
             
             loss = loss / batch.shape[0]
             total_loss += loss
-            total_perp += perplexity
+            total_perp += perplexity.item()
             
     total_perp = total_perp / len(data_loader)
     total_loss = total_loss / len(data_loader)

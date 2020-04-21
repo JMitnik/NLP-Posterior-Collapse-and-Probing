@@ -17,16 +17,20 @@ def train_batch_rnn(model, optimizer, criterion, train_batch, device):
 
     # Current assumption: to not predikct past final token, we dont include the EOS tag in the input
     output = model(inp)
-
+    # print(output)
     # One hot target and shift by one (so first word matches second token)
     # target = torch.nn.functional.one_hot(input_tensor, num_classes=vocab_size)
     target = train_batch[:, 1:].to(device)
 
     # Calc loss and perform backprop
     loss = criterion(output.reshape(-1, model.vocab_size), target.reshape(-1))
+  
+    
+    print('\n\n')
+    return
     loss.backward()
     optimizer.step()
-
+    
     return loss
 
 
@@ -53,12 +57,13 @@ def train_rnn(
         epoch_loss = 0
 
         for idx, (batch, sl) in enumerate(train_loader):
+            optimizer.zero_grad()
             model.train()
 
             loss = train_batch_rnn(model, optimizer, loss_fn, batch, device)
         
             all_words = torch.sum(sl).item()
-            perplexity = np.exp(loss.item() / all_words) / batch.size(0)
+            perplexity = np.exp(loss.item() / all_words)
 
             loss = loss / batch.shape[0]
           
