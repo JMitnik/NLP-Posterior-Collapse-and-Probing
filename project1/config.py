@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import List, Union
 
 class bcolors:
     HEADER = '\033[95m'
@@ -45,16 +46,8 @@ class Config:
     vae_latent_size: int = 0
 
     # Hyperparameters
-    param_wdropout_k: float = 1
-    freebits_param: int = -1
-    mu_force_beta_param: int = 0 # Possible values should be [0, 2, 3, 5, 10]
+    param_wdropout_k: Union[int, float, List[int] ,List[float]] = 1
+    freebits_param:  Union[int, float, List[int] ,List[float]] = -1
+    mu_force_beta_param: Union[int, List[int]] = 0
 
-    def __post_init__(self):
-        if self.param_wdropout_k < 1:
-            print(f"{bcolors.WARNING}❗Word-dropout active, is set to {self.param_wdropout_k} {bcolors.ENDC}")
-
-        if self.freebits_param > -1:
-            print(f"{bcolors.WARNING}❗Freebits active, is set to {self.freebits_param} {bcolors.ENDC}")
-
-        if self.mu_force_beta_param > 0:
-            print(f"{bcolors.WARNING}❗Mu-force beta param active, is set to {self.mu_force_beta_param} {bcolors.ENDC}")
+    # Multiple hyperparameters

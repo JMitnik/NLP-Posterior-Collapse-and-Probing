@@ -3,9 +3,11 @@ from torch.utils.data.dataloader import DataLoader
 import torch.nn as nn
 from torch.utils.tensorboard.writer import SummaryWriter
 from losses import make_elbo_criterion
+import pandas as pd
 from models.VAE import VAE
 from models.RNNLM import RNNLM
 import torch
+import os
 
 def train_batch_rnn(model, optimizer, criterion, train_batch, device):
     inp = train_batch[:, 0:-1].to(device)
@@ -116,6 +118,7 @@ def train_vae(
     model: VAE,
     optimizer,
     train_loader: DataLoader,
+    valid_loader: DataLoader,
     nr_epochs: int,
     device: str,
     results_writer: SummaryWriter,
@@ -132,6 +135,20 @@ def train_vae(
         torch.ones(model.latent_size)
     )
 
+    results = pd.DataFrame(columns=[
+        'model_name', 'word', 'word_dropout'
+'mu_force_beta_param'
+,'freebits_param',
+'elbo',
+'kl',
+'nll',
+'mu',
+'ppl',
+'epoch',
+'iteration',])
+    results_filename = 'results/vae_training.csv'
+    results_filename = 'results/vae_valid_scores.csv'
+
     for epoch in range(nr_epochs):
         print (epoch)
         i = 0
@@ -147,6 +164,8 @@ def train_vae(
                 results_writer
             )
             loss, kl_loss, nlll, mu_loss = loss
+
+            # Store loss from training
             results_writer.add_scalar('train-vae/elbo-loss', loss, epoch * len(train_loader) + idx)
             results_writer.add_scalar('train-vae/ppl', torch.log(torch.tensor(loss)), epoch * len(train_loader) + idx)
             results_writer.add_scalar('train-vae/kl-loss', kl_loss, epoch * len(train_loader) + idx)
@@ -155,7 +174,6 @@ def train_vae(
 
             if i % 10 == 0:
                 print(f'iteration: {i} || KL Loss: {kl_loss} || NLLL: {nlll} || MuLoss: {mu_loss} || Total: {loss}')
-
             # Every 100 iterations, predict a sentence and check the truth
             if i % 100 == 0:
                 decoded_first_pred = decoder(preds) # TODO: Cutt-off after sentence length?
@@ -163,5 +181,27 @@ def train_vae(
                 results_writer.add_text(f'it {epoch * len(train_loader) + idx}: prediction', decoded_first_pred)
                 results_writer.add_text(f'it {epoch * len(train_loader) + idx}: truth', decoded_first_true)
 
+                # # Store in the table
+                results = results.append({
+                    'run_label': config.run_label,
+                    'model_name': type(model).__name__,
+                    'word_dropout': model.param_wdropout_k,
+                    'mu_force_beta_param': mu_force_beta_param,
+                    'freebits_param': freebits_param,
+                    'elbo': loss,
+                    'kl': kl_loss,
+                    'nll-loss': nlll,
+                    'mu-loss': mu_loss,
+                    'ppl': torch.log(torch.tensor(loss)),
+                    'epoch': epoch,
+                    'iteration': i
+                }, ignore_index=True)
+
             i += 1
+
+    if not os.path.exists(results_filename):
+        os.makedirs(os.path.dirname(results_filename), exist_ok=True)
+        results.to_csv(results_filename)
+    else:
+        results.to_csv(results_filename, mode='a', header=False)
     print('Done training the VAE')

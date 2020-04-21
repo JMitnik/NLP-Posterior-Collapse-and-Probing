@@ -2,7 +2,10 @@
 # ## Imports
 from dataclasses import asdict
 import os
+import numpy as np
 import importlib
+from collections import OrderedDict
+from operator import iconcat
 from trainers import train_rnn, train_vae
 from nltk import Tree
 from nltk.treeprettyprinter import TreePrettyPrinter
@@ -50,13 +53,13 @@ config = Config(
     rnn_hidden_size=50,
     vae_encoder_hidden_size=128,
     vae_decoder_hidden_size=1281,
-    param_wdropout_k=ARGS.wdropout_k or 1,
+    param_wdropout_k=ARGS.wdropout_k or [0, 0.5, 1],
     vae_latent_size=128,
     vocab_size=10000,
-    mu_force_beta_param=ARGS.mu_beta or 0,
+    mu_force_beta_param=ARGS.mu_beta or [0, 2, 3, 5, 10],
     will_train_rnn=False,
     will_train_vae=True,
-    nr_epochs=ARGS.nr_epochs or 1,
+    nr_epochs=ARGS.nr_epochs or 5,
     results_path = 'results',
     train_path = '/data/02-21.10way.clean',
     valid_path = '/data/22.auto.clean',
@@ -111,20 +114,25 @@ importlib.reload(models.VAE)
 ###
 # Playing around with VAEs now
 from models.VAE import VAE
-vae = VAE(
-    encoder_hidden_size=config.vae_encoder_hidden_size,
-    decoder_hidden_size=config.vae_decoder_hidden_size,
-    latent_size=config.vae_latent_size,
-    vocab_size=config.vocab_size,
-    param_wdropout_k=config.param_wdropout_k,
-    embedding_size=config.embedding_size
-).to(config.device)
+import itertools
+from functools import reduce
+import operator
 
-optimizer = torch.optim.Adam(params=vae.parameters())
+def dict_product(dicts):
+    return (dict(zip(dicts, x)) for x in itertools.product(*dicts.values()))
 
-# Initalize results writer
-path_to_results = f'{config.results_path}/vae'
-vae_results_writer: SummaryWriter = SummaryWriter(comment=config.run_label)
+def flatten(L):
+    for item in L:
+        try:
+            yield from flatten(item)
+        except TypeError:
+            yield item
+
+potential_params = OrderedDict({
+    'free_bits_param': np.hstack([config.freebits_param]),
+    'param_wdropout_k': np.hstack([config.param_wdropout_k]),
+    'mu_force_beta_param': np.hstack([config.mu_force_beta_param]),
+})
 
 # Add VAE to tensorboard
 def make_sentence_decoder(tokenizer, temperature=1):
@@ -146,20 +154,41 @@ def make_sentence_decoder(tokenizer, temperature=1):
 
     return sentence_decoder
 
-sentence_decoder = make_sentence_decoder(cd.tokenizer, 1)
+param_grid = list(dict_product(potential_params))
+param_grid
 
-if config.will_train_vae:
-    train_vae(
-        vae,
-        optimizer,
-        train_loader,
-        nr_epochs=config.nr_epochs,
-        device=config.device,
-        results_writer=vae_results_writer,
-        config=config,
-        decoder=sentence_decoder,
-        freebits_param=config.freebits_param,
-        mu_force_beta_param=config.mu_force_beta_param
-    )
+# %%
+for param_setting in param_grid:
+    vae = VAE(
+        encoder_hidden_size=config.vae_encoder_hidden_size,
+        decoder_hidden_size=config.vae_decoder_hidden_size,
+        latent_size=config.vae_latent_size,
+        vocab_size=config.vocab_size,
+        param_wdropout_k=param_setting['param_wdropout_k'],
+        embedding_size=config.embedding_size
+    ).to(config.device)
 
-vae_results_writer.close()
+    optimizer = torch.optim.Adam(params=vae.parameters())
+
+    # Initalize results writer
+    path_to_results = f'{config.results_path}/vae'
+    params2string = '-'.join([f"{i}:{param_setting[i]}" for i in param_setting.keys()])
+    vae_results_writer: SummaryWriter = SummaryWriter(comment=f"config.run_label--{params2string}")
+
+    sentence_decoder = make_sentence_decoder(cd.tokenizer, 1)
+
+    if config.will_train_vae:
+        train_vae(
+            vae,
+            optimizer,
+            train_loader,
+            nr_epochs=config.nr_epochs,
+            device=config.device,
+            results_writer=vae_results_writer,
+            config=config,
+            decoder=sentence_decoder,
+            freebits_param=param_setting['free_bits_param'],
+            mu_force_beta_param=param_setting['mu_force_beta_param']
+        )
+
+    vae_results_writer.close()
