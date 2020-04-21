@@ -45,7 +45,10 @@ def evaluate_rnn(
     data_loader,
     epoch,
     device,
-    criterion
+    criterion,
+    writer,
+    eval_type: str = 'valid',
+    it: int = 0
 ):
     model.eval()
     total_loss: float = 0
@@ -61,6 +64,10 @@ def evaluate_rnn(
             total_loss += loss / len(batch)
 
     total_loss = total_loss / len(data_loader)
+
+    writer.add_scalar(f'{eval_type}-rnn/loss' , total_loss, it)
+    writer.add_scalar(f'{eval_type}-rnn/ppl' , torch.log(total_loss), it)
+
     return total_loss, torch.log(torch.tensor(total_loss))
 
 

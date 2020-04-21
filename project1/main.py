@@ -57,10 +57,11 @@ config = Config(
     vae_latent_size=128,
     vocab_size=10000,
     validate_every=1000,
-    print_every=500,
+    print_every=10,#500,
     mu_force_beta_param=ARGS.mu_beta or [0, 2, 3, 5, 10],
-    will_train_rnn=False,
-    will_train_vae=True,
+    freebits_param=ARGS.freebits or [0, 0.125, 0.25, 0.5, 1, 2, 4, 8],
+    will_train_rnn=True,
+    will_train_vae=False,
     nr_epochs=ARGS.nr_epochs or 5,
     results_path = 'results',
     train_path = '/data/02-21.10way.clean',
@@ -68,6 +69,8 @@ config = Config(
     test_path  = '/data/23.auto.clean',
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 )
+
+print(f'Running on {config.device}.')
 
 cd = CustomData(config)
 train_loader = cd.get_data_loader(type="train", shuffle=True)
@@ -198,3 +201,6 @@ for param_setting in param_grid:
         )
 
     vae_results_writer.close()
+
+
+# %%

@@ -10,6 +10,7 @@ import torch
 import os
 from evaluations import evaluate_VAE, evaluate_rnn
 from utils import save_model
+import numpy as np
 
 def train_batch_rnn(model, optimizer, criterion, train_batch, device):
     inp = train_batch[:, 0:-1].to(device)
@@ -52,31 +53,32 @@ def train_rnn(
             model.train()
             loss = train_batch_rnn(model, optimizer, loss_fn, train_batch, device)
             loss = loss / train_batch.shape[0]
-            perplexity = torch.log(loss)
+            sentence_length = train_batch[0].size()[0]
+            perplexity = np.exp(loss.item() /sentence_length)
 
             it = epoch * len(train_loader) + idx
-            results_writer.add_scalar('train-rnn/loss', loss, it)
-            results_writer.add_scalar('train-rnn/ppl', perplexity, it)
+            
 
 
             if it % config.print_every == 0:
-                print(f'Iter: {it}, {round(idx/len(train_loader)*100)}/100% || Loss: {loss} || Perplexity {perplexity}')
+                print(f'Iteration: {it} || Loss: {loss} || Perplexity {perplexity}')
+                results_writer.add_scalar('train-rnn/loss', loss, it)
+                results_writer.add_scalar('train-rnn/ppl', perplexity, it)
+            
             # Save the most recent model
             save_model('rnn_recent', model, optimizer, it)
+            # Validate the model and save if the model is better
             if it % config.validate_every == 0:
                 print("Validating model")
-                valid_loss, valid_perp = evaluate_rnn(model, valid_loader, it, device, loss_fn)
+                valid_loss, valid_perp = evaluate_rnn(model, valid_loader, it, device, loss_fn, results_writer, it=it)
                 previous_valid_loss = valid_loss
 
-                # Check if the model is better and save
                 if previous_valid_loss < best_valid_loss:
                     print('New Best Validation score!')
                     best_valid_loss = previous_valid_loss
                     save_model('rnn_best', model, optimizer, it)
 
                 print(f'Validation results || Loss: {valid_loss} || Perplexity {valid_perp}')
-                results_writer.add_scalar('valid-rnn/loss' , valid_loss, it)
-                results_writer.add_scalar('valid-rnn/ppl' , valid_perp, it)
                 print()
                 model.train()
         print('\n\n')
@@ -110,9 +112,6 @@ def train_batch_vae(model, optimizer, criterion, train_batch, prior, device, mu_
     loss = loss.mean()
     kl_loss = kl_loss.mean()
     nlll = nlll.mean()
-    # print(posterior)
-    # print(posterior.loc)
-    # print(posterior.loc.flatten())
     flattend_post = posterior.loc.flatten()
     mu_max = torch.max(flattend_post)
     mu_min = torch.min(flattend_post)
@@ -196,7 +195,7 @@ def train_vae(
             results_writer.add_scalar('train-vae/mu-loss', mu_loss, it)
 
             if idx % config.print_every == 0:
-                print(f'iteration: {it} || KL Loss: {kl_loss} || NLLL: {nlll} || MuLoss: {mu_loss} || Total: {loss}')
+                print(f'Iteration: {it} || KL Loss: {kl_loss} || NLLL: {nlll} || MuLoss: {mu_loss} || Total: {loss}')
 
             # Every 100 iterations, predict a sentence and check the truth
             if idx % config.print_every == 0:

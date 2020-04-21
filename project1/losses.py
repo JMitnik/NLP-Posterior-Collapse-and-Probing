@@ -14,6 +14,7 @@ def make_elbo_criterion(vocab_size: int, freebits_param=-1, mu_force_beta_param=
 
         # Free bit implementation
         if freebits_param >= 0:
+            # do it for each dim first, and then sum
             freebits_tensor = torch.full_like(kl_loss, fill_value=freebits_param, dtype=torch.float)
             freebit_loss = torch.max(kl_loss, freebits_tensor)
             kl_loss = freebit_loss
