@@ -48,14 +48,16 @@ ARGS, unknown = parser.parse_known_args()
 ###
 config = Config(
     run_label=ARGS.run_label or '',
-    batch_size=64,
+    batch_size=16,
     embedding_size=50,
     rnn_hidden_size=50,
     vae_encoder_hidden_size=128,
-    vae_decoder_hidden_size=1281,
     param_wdropout_k=ARGS.wdropout_k or [0, 0.5, 1],
+    vae_decoder_hidden_size=128,
     vae_latent_size=128,
     vocab_size=10000,
+    validate_every=1000,
+    print_every=1000,
     mu_force_beta_param=ARGS.mu_beta or [0, 2, 3, 5, 10],
     will_train_rnn=False,
     will_train_vae=True,
@@ -82,7 +84,7 @@ criterion = nn.CrossEntropyLoss(
     ignore_index=0,
     reduction='sum'
 )
-optim = torch.optim.Adam(rnn_lm.parameters())
+optim = torch.optim.Adam(rnn_lm.parameters(), lr=0.00001)
 
 path_to_results = f'{config.results_path}/rnn'
 rnn_results_writer = SummaryWriter()
@@ -92,9 +94,11 @@ if config.will_train_rnn:
         rnn_lm,
         optim,
         train_loader,
-        config.nr_epochs,
-        config.device,
-        rnn_results_writer
+        valid_loader,
+        config=config,
+        nr_epochs=config.nr_epochs,
+        device=config.device,
+        results_writer=rnn_results_writer
 )
 
 
@@ -178,10 +182,12 @@ for param_setting in param_grid:
     sentence_decoder = make_sentence_decoder(cd.tokenizer, 1)
 
     if config.will_train_vae:
+        print(f"Training params: {params2string}")
         train_vae(
             vae,
             optimizer,
             train_loader,
+            valid_loader,
             nr_epochs=config.nr_epochs,
             device=config.device,
             results_writer=vae_results_writer,

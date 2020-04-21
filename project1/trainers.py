@@ -8,6 +8,8 @@ from models.VAE import VAE
 from models.RNNLM import RNNLM
 import torch
 import os
+from evaluations import evaluate_VAE, evaluate_rnn
+from utils import save_model
 
 def train_batch_rnn(model, optimizer, criterion, train_batch, device):
     inp = train_batch[:, 0:-1].to(device)
@@ -31,6 +33,8 @@ def train_rnn(
     model: RNNLM,
     optimizer,
     train_loader: DataLoader,
+    valid_loader: DataLoader,
+    config,
     nr_epochs: int,
     device: str,
     results_writer: SummaryWriter,
@@ -39,40 +43,47 @@ def train_rnn(
         ignore_index=0,
         reduction='sum'
     )
-
+    best_valid_loss = 1000
+    previous_valid_loss = 1000
     for epoch in range(nr_epochs):
         print(f'Epoch: {epoch + 1} / {nr_epochs}')
-        it = 0
-        for index, train_batch in enumerate(train_loader):
+
+        for idx, train_batch in enumerate(train_loader):
             model.train()
             loss = train_batch_rnn(model, optimizer, loss_fn, train_batch, device)
             loss = loss / train_batch.shape[0]
             perplexity = torch.log(loss)
 
-            # # TODO: Improve training results, log also on and across epoch
-            # utils.store_training_results(
-            #     results_writer,
-            #     'training',
-            #     loss,
-            #     perplexity,
-            #     total_iters
-            # )
+            it = epoch * len(train_loader) + idx
+            results_writer.add_scalar('train-rnn/loss', loss, it)
+            results_writer.add_scalar('train-rnn/ppl', perplexity, it)
 
-            # if it % print_every == 0:
-            #     print(f'Iter: {it}, {round(it/no_iters*100)}/100% || Loss: {loss} || Perplexity {perplexity}')
-            # iter += 1
-            # total_iters += 1
 
-            # if iter % validate_every == 0:
-            #     print("Evaluating...")
-            #     valid_loss, valid_perp = evaluate_model(rnn_lm, valid_loader, epoch)
-            #     print(f'Validation -- Iter: {iter}, {round(iter/no_iters*100)}/100% || Loss: {loss} || Perplexity {perplexity}')
-            #     utils.store_training_results(writer, 'validation' , valid_loss, valid_perp, total_iters)
+            if it % config.print_every == 0:
+                print(f'Iter: {it}, {round(idx/len(train_loader)*100)}/100% || Loss: {loss} || Perplexity {perplexity}')
+            # Save the most recent model
+            save_model('rnn_recent', model, optimizer, it)
+            if it % config.validate_every == 0:
+                print("Validating model")
+                valid_loss, valid_perp = evaluate_rnn(model, valid_loader, it, device, loss_fn)
+                previous_valid_loss = valid_loss
+
+                # Check if the model is better and save
+                if previous_valid_loss < best_valid_loss:
+                    print('New Best Validation score!')
+                    best_valid_loss = previous_valid_loss
+                    save_model('rnn_best', model, optimizer, it)
+
+                print(f'Validation results || Loss: {valid_loss} || Perplexity {valid_perp}')
+                results_writer.add_scalar('valid-rnn/loss' , valid_loss, it)
+                results_writer.add_scalar('valid-rnn/ppl' , valid_perp, it)
+                print()
+                model.train()
         print('\n\n')
     print("Done with training!")
 
 
-def train_batch_vae(model, optimizer, criterion, train_batch, prior, device, mu_force_beta_param, writer):
+def train_batch_vae(model, optimizer, criterion, train_batch, prior, device, mu_force_beta_param, writer, it):
     """
     Trains single batch of VAE
     """
@@ -99,10 +110,20 @@ def train_batch_vae(model, optimizer, criterion, train_batch, prior, device, mu_
     loss = loss.mean()
     kl_loss = kl_loss.mean()
     nlll = nlll.mean()
+    # print(posterior)
+    # print(posterior.loc)
+    # print(posterior.loc.flatten())
+    flattend_post = posterior.loc.flatten()
+    mu_max = torch.max(flattend_post)
+    mu_min = torch.min(flattend_post)
+
+
+    writer.add_histogram('train-vae/mu', flattend_post, it)
 
     # Now add to the loss mu force loss
-    batch_mean_vectors = posterior.loc
-    avg_batch_mean_vector = batch_mean_vectors.mean(0)
+    batch_mean_vectors = posterior.loc # mu(n) mu vector of nth sample
+    avg_batch_mean_vector = batch_mean_vectors.mean(0) # mu(stripe) mean of vectors mu
+    # Shouldn't it be tensordot.... / (batch.shape[0] * 2) ??
     mu_force_loss_var = torch.tensordot(batch_mean_vectors - avg_batch_mean_vector, batch_mean_vectors - avg_batch_mean_vector, 2) / train_batch.shape[0] / 2
     mu_force_loss = torch.max(torch.tensor([0.0]), mu_force_beta_param - mu_force_loss_var).to(device)
 
@@ -127,6 +148,9 @@ def train_vae(
     freebits_param=-1,
     mu_force_beta_param=1,
 ):
+    best_valid_loss = 1000
+    previous_valid_loss = 1000
+
     vocab_size = model.vocab_size
     loss_fn = make_elbo_criterion(vocab_size, freebits_param, mu_force_beta_param)
 
@@ -135,24 +159,23 @@ def train_vae(
         torch.ones(model.latent_size)
     )
 
-    results = pd.DataFrame(columns=[
-        'model_name', 'word', 'word_dropout'
-'mu_force_beta_param'
-,'freebits_param',
-'elbo',
-'kl',
-'nll',
-'mu',
-'ppl',
-'epoch',
-'iteration',])
-    results_filename = 'results/vae_training.csv'
-    results_filename = 'results/vae_valid_scores.csv'
+    train_results = pd.DataFrame(columns=['model_name', 'word', 'word_dropout'
+    'mu_force_beta_param', 'freebits_param', 'elbo', 'kl', 'nll',
+    'mu', 'ppl', 'epoch', 'iteration',])
+
+    valid_results = pd.DataFrame(columns=['model_name', 'word', 'word_dropout'
+    'mu_force_beta_param', 'freebits_param', 'elbo', 'kl', 'nll',
+    'mu', 'ppl', 'epoch', 'iteration', 'best_model'])
+
+    train_results_filename = 'results/vae_training.csv'
+    valid_results_filename = 'results/vae_valid_scores.csv'
 
     for epoch in range(nr_epochs):
         print (epoch)
-        i = 0
+
         for idx, train_batch in enumerate(train_loader):
+            it = epoch * len(train_loader) + idx
+
             loss, preds = train_batch_vae(
                 model,
                 optimizer,
@@ -161,28 +184,30 @@ def train_vae(
                 prior,
                 device,
                 mu_force_beta_param,
-                results_writer
+                results_writer,
+                it
             )
+
+
             loss, kl_loss, nlll, mu_loss = loss
+            results_writer.add_scalar('train-vae/elbo-loss', loss, it)
+            results_writer.add_scalar('train-vae/ppl', torch.log(torch.tensor(loss)), it)
+            results_writer.add_scalar('train-vae/kl-loss', kl_loss, it)
+            results_writer.add_scalar('train-vae/nll-loss', nlll, it)
+            results_writer.add_scalar('train-vae/mu-loss', mu_loss, it)
 
-            # Store loss from training
-            results_writer.add_scalar('train-vae/elbo-loss', loss, epoch * len(train_loader) + idx)
-            results_writer.add_scalar('train-vae/ppl', torch.log(torch.tensor(loss)), epoch * len(train_loader) + idx)
-            results_writer.add_scalar('train-vae/kl-loss', kl_loss, epoch * len(train_loader) + idx)
-            results_writer.add_scalar('train-vae/nll-loss', nlll, epoch * len(train_loader) + idx)
-            results_writer.add_scalar('train-vae/mu-loss', mu_loss, epoch * len(train_loader) + idx)
+            if idx % config.print_every == 0:
+                print(f'iteration: {it} || KL Loss: {kl_loss} || NLLL: {nlll} || MuLoss: {mu_loss} || Total: {loss}')
 
-            if i % 10 == 0:
-                print(f'iteration: {i} || KL Loss: {kl_loss} || NLLL: {nlll} || MuLoss: {mu_loss} || Total: {loss}')
             # Every 100 iterations, predict a sentence and check the truth
-            if i % 100 == 0:
+            if idx % config.print_every == 0:
                 decoded_first_pred = decoder(preds) # TODO: Cutt-off after sentence length?
                 decoded_first_true = decoder(train_batch[:, 1:])
-                results_writer.add_text(f'it {epoch * len(train_loader) + idx}: prediction', decoded_first_pred)
-                results_writer.add_text(f'it {epoch * len(train_loader) + idx}: truth', decoded_first_true)
+                results_writer.add_text(f'it {it}: prediction', decoded_first_pred)
+                results_writer.add_text(f'it {it}: truth', decoded_first_true)
 
                 # # Store in the table
-                results = results.append({
+                train_results = train_results.append({
                     'run_label': config.run_label,
                     'model_name': type(model).__name__,
                     'word_dropout': model.param_wdropout_k,
@@ -194,14 +219,61 @@ def train_vae(
                     'mu-loss': mu_loss,
                     'ppl': torch.log(torch.tensor(loss)),
                     'epoch': epoch,
-                    'iteration': i
+                    'iteration': it
                 }, ignore_index=True)
 
-            i += 1
+            if idx % config.validate_every == 0:
+                print('Validating model')
+                valid_total_loss, valid_total_kl_loss, valid_total_nlll, valid_total_mu_loss = evaluate_VAE(model,
+                    valid_loader,
+                    epoch,
+                    device,
+                    loss_fn,
+                    mu_force_beta_param,
+                    prior,
+                    results_writer,
+                    iteration = epoch * len(train_loader) + idx
+                )
 
-    if not os.path.exists(results_filename):
-        os.makedirs(os.path.dirname(results_filename), exist_ok=True)
-        results.to_csv(results_filename)
+                # # Store in the table
+                valid_results = valid_results.append({
+                    'run_label': config.run_label,
+                    'model_name': type(model).__name__,
+                    'word_dropout': model.param_wdropout_k,
+                    'mu_force_beta_param': mu_force_beta_param,
+                    'freebits_param': freebits_param,
+                    'elbo': valid_total_loss,
+                    'kl': valid_total_kl_loss,
+                    'nll-loss': valid_total_nlll,
+                    'mu-loss': valid_total_mu_loss,
+                    'ppl': torch.log(torch.tensor(loss)),
+                    'epoch': epoch,
+                    'iteration': it
+                }, ignore_index=True)
+
+                previous_valid_loss = valid_total_loss
+
+                # Check if the model is better and save
+                if previous_valid_loss < best_valid_loss:
+                    print('New Best Validation score!')
+                    best_valid_loss = previous_valid_loss
+                    save_model('vae_best', model, optimizer, it)
+                    print(f'Validation Results || Elbo loss: {valid_total_loss} || KL loss: {valid_total_kl_loss} || NLLL {valid_total_nlll} || MU loss {valid_total_mu_loss}')
+                    print()
+                model.train()
+
+    # Save train
+    if not os.path.exists(train_results_filename):
+        os.makedirs(os.path.dirname(train_results_filename), exist_ok=True)
+        train_results.to_csv(train_results_filename)
     else:
-        results.to_csv(results_filename, mode='a', header=False)
+        train_results.to_csv(train_results_filename, mode='a', header=False)
+
+    # Save valid
+    if not os.path.exists(valid_results_filename):
+        os.makedirs(os.path.dirname(valid_results_filename), exist_ok=True)
+        valid_results.to_csv(valid_results_filename)
+    else:
+        valid_results.to_csv(valid_results_filename, mode='a', header=False)
+
     print('Done training the VAE')
