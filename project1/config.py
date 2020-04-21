@@ -50,4 +50,11 @@ class Config:
     freebits_param:  Union[int, float, List[int] ,List[float]] = -1
     mu_force_beta_param: Union[int, List[int]] = 0
 
+    # Training configurations
+    # How often we validate our model, in iterations
+    validate_every: int = 1000
+
+    # How often we print our results
+    print_every: int = 100
+
     # Multiple hyperparameters

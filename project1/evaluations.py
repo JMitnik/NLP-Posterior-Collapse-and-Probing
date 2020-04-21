@@ -82,11 +82,11 @@ def evaluate_VAE(
     total_kl_loss: float = 0
     total_nlll: float = 0
     total_mu_loss: float = 0
-    
+
     for batch in data_loader:
         with torch.no_grad():
             inp = batch[:, 0:-1].to(device)
-            
+
             # Creat both prediction of next word and the posterior of which we sample Z.
             preds, posterior = model(inp)
 
@@ -106,7 +106,7 @@ def evaluate_VAE(
             kl_loss = kl_loss.mean()
             nlll = nlll.mean()
 
-            
+
 
             # Now add to the loss mu force loss
             batch_mean_vectors = posterior.loc
@@ -120,7 +120,7 @@ def evaluate_VAE(
             total_kl_loss += kl_loss.item()
             total_nlll += nlll.item()
             total_mu_loss += mu_force_loss_var.item()
-        
+
     total_loss = total_loss / len(data_loader)
     total_kl_loss = total_kl_loss / len(data_loader)
     total_nlll = total_nlll / len(data_loader)
