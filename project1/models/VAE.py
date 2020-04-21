@@ -54,6 +54,8 @@ class VAE(nn.Module):
         embeds = self.embeddings(x)
         mu, sigma = self.encoder(embeds)
 
+        batch_size = x.shape[0]
+
         # Sample latent variable
         distribution: torch.distributions.Distribution = self.make_distribution(
             mu.clone().cpu(),
@@ -78,12 +80,9 @@ class VAE(nn.Module):
         if nr_multi_sample == 1:
             z = distribution.rsample().to(x.device)
         else:
-            # TODO: Test
-            z = distribution.rsample(torch.tensor([nr_multi_sample]))
-            z = z.mean(0)
-            z = z.to(x.device)
+            z = distribution.rsample(torch.tensor([nr_multi_sample])).reshape((nr_multi_sample * batch_size, -1)).to(x.device)
 
-        pred = self.decoder(embeds, z)
+        pred = self.decoder(embeds, z, nr_multi_sample)
 
         if self.graph_mode:
             return pred
@@ -149,7 +148,11 @@ class Decoder(nn.Module):
 
         self.tanh = nn.Tanh()
 
-    def forward(self, x, z):
+    def forward(self, x, z, nr_multi_sample = 1):
+        # If so, copy x to be `nr_multi_sample` to match
+        if nr_multi_sample > 1:
+            x = x.unsqueeze(1).repeat(1, nr_multi_sample, 1, 1).flatten(0, 1)
+
         global_hidden = self.tanh(self.latent2hidden(z))
         states, _ = self.rnn(x, global_hidden.view(1, global_hidden.shape[0], -1))
 

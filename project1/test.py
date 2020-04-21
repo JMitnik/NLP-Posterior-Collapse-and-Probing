@@ -48,7 +48,6 @@ ARGS, unknown = parser.parse_known_args()
 ###
 ### Data definition
 ###
-
 chosen_wdropout_params = [0, 0.5, 1]
 chosen_mu_force_beta_params = [0, 2, 3, 5, 10]
 chosen_freebits_params = [-1]
