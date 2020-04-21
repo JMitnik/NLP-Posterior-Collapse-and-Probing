@@ -188,7 +188,6 @@ def train_vae(
                 it
             )
 
-
             loss, kl_loss, nlll, mu_loss = loss
             results_writer.add_scalar('train-vae/elbo-loss', loss, it)
             results_writer.add_scalar('train-vae/ppl', torch.log(torch.tensor(loss)), it)
