@@ -25,9 +25,6 @@ def train_batch_rnn(model, optimizer, criterion, train_batch, device):
     # Calc loss and perform backprop
     loss = criterion(output.reshape(-1, model.vocab_size), target.reshape(-1))
   
-    
-    print('\n\n')
-    return
     loss.backward()
     optimizer.step()
     
