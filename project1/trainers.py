@@ -202,7 +202,7 @@ def train_vae(
             )
 
             loss, kl_loss, nlll, mu_loss = loss
-            sentence_length = train_batch[0].size()[0]
+            sentence_length = torch.sum(sl).item()
             perplexity = np.exp(loss /sentence_length)
             # print and log every 50 iterations
             if idx % config.print_every == 0:
