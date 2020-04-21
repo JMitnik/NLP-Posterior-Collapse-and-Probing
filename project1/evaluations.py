@@ -2,6 +2,7 @@ import torch
 import torch.distributions as D
 import torch.nn.functional as F
 from models import VAE
+import numpy as np
 
 def generate_next_words(
     model,
@@ -52,6 +53,7 @@ def evaluate_rnn(
 ):
     model.eval()
     total_loss: float = 0
+    total_perp: float = 0
 
     for batch in data_loader:
         with torch.no_grad():
@@ -61,14 +63,18 @@ def evaluate_rnn(
             output = model(input)
 
             loss = criterion(output.reshape(-1, model.vocab_size), target.reshape(-1))
+            sentence_length = batch[0].size()[0]
+            perp = np.exp((loss.item() / batch.shape[0]) / sentence_length)
             total_loss += loss / len(batch)
+            total_perp += perp
 
     total_loss = total_loss / len(data_loader)
-
+    total_perp = total_perp / len(data_loader)
+    
     writer.add_scalar(f'{eval_type}-rnn/loss' , total_loss, it)
-    writer.add_scalar(f'{eval_type}-rnn/ppl' , torch.log(total_loss), it)
+    writer.add_scalar(f'{eval_type}-rnn/ppl' , total_perp, it)
 
-    return total_loss, torch.log(torch.tensor(total_loss))
+    return total_loss, total_perp
 
 
 # Better to make it specific for validation?

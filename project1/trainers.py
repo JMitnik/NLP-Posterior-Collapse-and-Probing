@@ -58,8 +58,7 @@ def train_rnn(
 
             it = epoch * len(train_loader) + idx
             
-
-
+            # print and log every 50 iterations
             if it % config.print_every == 0:
                 print(f'Iteration: {it} || Loss: {loss} || Perplexity {perplexity}')
                 results_writer.add_scalar('train-rnn/loss', loss, it)
@@ -68,7 +67,7 @@ def train_rnn(
             # Save the most recent model
             save_model('rnn_recent', model, optimizer, it)
             # Validate the model and save if the model is better
-            if it % config.validate_every == 0:
+            if it % config.validate_every == 0 and it != 0:
                 print("Validating model")
                 valid_loss, valid_perp = evaluate_rnn(model, valid_loader, it, device, loss_fn, results_writer, it=it)
                 previous_valid_loss = valid_loss
@@ -188,16 +187,17 @@ def train_vae(
             )
 
             loss, kl_loss, nlll, mu_loss = loss
-            results_writer.add_scalar('train-vae/elbo-loss', loss, it)
-            results_writer.add_scalar('train-vae/ppl', torch.log(torch.tensor(loss)), it)
-            results_writer.add_scalar('train-vae/kl-loss', kl_loss, it)
-            results_writer.add_scalar('train-vae/nll-loss', nlll, it)
-            results_writer.add_scalar('train-vae/mu-loss', mu_loss, it)
-
+            
+            # print and log every 50 iterations
             if idx % config.print_every == 0:
                 print(f'Iteration: {it} || KL Loss: {kl_loss} || NLLL: {nlll} || MuLoss: {mu_loss} || Total: {loss}')
+                results_writer.add_scalar('train-vae/elbo-loss', loss, it)
+                results_writer.add_scalar('train-vae/ppl', torch.log(torch.tensor(loss)), it)
+                results_writer.add_scalar('train-vae/kl-loss', kl_loss, it)
+                results_writer.add_scalar('train-vae/nll-loss', nlll, it)
+                results_writer.add_scalar('train-vae/mu-loss', mu_loss, it)
 
-            # Every 100 iterations, predict a sentence and check the truth
+            # Every 50 iterations, predict a sentence and check the truth
             if idx % config.print_every == 0:
                 decoded_first_pred = decoder(preds) # TODO: Cutt-off after sentence length?
                 decoded_first_true = decoder(train_batch[:, 1:])
@@ -220,7 +220,7 @@ def train_vae(
                     'iteration': it
                 }, ignore_index=True)
 
-            if idx % config.validate_every == 0:
+            if idx % config.validate_every == 0 and it != 0:
                 print('Validating model')
                 valid_total_loss, valid_total_kl_loss, valid_total_nlll, valid_total_mu_loss = evaluate_VAE(model,
                     valid_loader,
