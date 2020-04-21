@@ -256,7 +256,7 @@ def train_vae(
                 if previous_valid_loss < best_valid_loss:
                     print('New Best Validation score!')
                     best_valid_loss = previous_valid_loss
-                    save_model('vae_best', model, optimizer, it)
+                    save_model(f'vae_best_mu{mu_force_beta_param}_wd{model.param_wdropout_k}_fb{freebits_param}', model, optimizer, it)
                     print(f'Validation Results || Elbo loss: {valid_total_loss} || KL loss: {valid_total_kl_loss} || NLLL {valid_total_nlll} || MU loss {valid_total_mu_loss}')
                     print()
                 model.train()
