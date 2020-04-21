@@ -2,6 +2,7 @@ import torch
 import torch.distributions as D
 import torch.nn.functional as F
 from models import VAE
+import numpy as np
 
 def generate_next_words(
     model,
@@ -52,6 +53,7 @@ def evaluate_rnn(
 ):
     model.eval()
     total_loss: float = 0
+    total_perp: float = 0
 
     for batch in data_loader:
         with torch.no_grad():
@@ -61,14 +63,18 @@ def evaluate_rnn(
             output = model(input)
 
             loss = criterion(output.reshape(-1, model.vocab_size), target.reshape(-1))
+            sentence_length = batch[0].size()[0]
+            perp = np.exp((loss.item() / batch.shape[0]) / sentence_length)
             total_loss += loss / len(batch)
+            total_perp += perp
 
     total_loss = total_loss / len(data_loader)
-
+    total_perp = total_perp / len(data_loader)
+    
     writer.add_scalar(f'{eval_type}-rnn/loss' , total_loss, it)
-    writer.add_scalar(f'{eval_type}-rnn/ppl' , torch.log(total_loss), it)
+    writer.add_scalar(f'{eval_type}-rnn/ppl' , total_perp, it)
 
-    return total_loss, torch.log(torch.tensor(total_loss))
+    return total_loss, total_perp
 
 
 # Better to make it specific for validation?
@@ -88,6 +94,7 @@ def evaluate_VAE(
     total_loss: float = 0
     total_kl_loss: float = 0
     total_nlll: float = 0
+    total_perp: float = 0
     total_mu_loss: float = 0
 
     for batch in data_loader:
@@ -114,6 +121,9 @@ def evaluate_VAE(
             loss = loss.mean()
             kl_loss = kl_loss.mean()
             nlll = nlll.mean()
+            
+            sentence_length = batch[0].size()[0]
+            perp = np.exp(loss.cpu().item() / sentence_length)
 
 
 
@@ -128,11 +138,13 @@ def evaluate_VAE(
             total_loss += loss.item()
             total_kl_loss += kl_loss.item()
             total_nlll += nlll.item()
+            total_perp += perp
             total_mu_loss += mu_force_loss_var.item()
 
     total_loss = total_loss / len(data_loader)
     total_kl_loss = total_kl_loss / len(data_loader)
     total_nlll = total_nlll / len(data_loader)
+    total_perp = total_perp / len(data_loader)
     total_mu_loss = total_mu_loss / len(data_loader)
 
     results_writer.add_scalar(f'{eval_type}-vae/elbo-loss', total_loss, iteration)
@@ -141,4 +153,4 @@ def evaluate_VAE(
     results_writer.add_scalar(f'{eval_type}-vae/nll-loss', total_nlll, iteration)
     results_writer.add_scalar(f'{eval_type}-vae/mu-loss', total_mu_loss, iteration)
 
-    return total_loss, total_kl_loss, total_nlll, total_mu_loss
+    return total_loss, total_kl_loss, total_nlll, total_perp, total_mu_loss
