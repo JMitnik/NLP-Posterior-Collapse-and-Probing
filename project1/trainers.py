@@ -184,7 +184,7 @@ def train_vae(
     for epoch in range(nr_epochs):
         print (epoch)
 
-        for idx, train_batch in enumerate(train_loader):
+        for idx, (train_batch, sl) in enumerate(train_loader):
             it = epoch * len(train_loader) + idx
 
             loss, preds = train_batch_vae(
