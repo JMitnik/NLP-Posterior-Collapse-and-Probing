@@ -26,13 +26,16 @@ def save_model(path, model, optimizer, step):
     checkpoint = {'state_dict': model.state_dict(),
                   'optimizer': optimizer.state_dict(),
                   'step': step}
-    torch.save(checkpoint, f'models/saved_models/{path}')
+    torch.save(checkpoint, f'models/saved_models/{path}.pt')
 
-def load_model(path, model, optimizer, device):
+def load_model(path, model, device, optimizer=None):
     """
     Load a model and optimizer state to device from path.
     """
     checkpoint = torch.load(path, map_location=device)
     model.load_state_dict(checkpoint['state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer'])
+
+    if optimizer is not None:
+        optimizer.load_state_dict(checkpoint['optimizer'])
+
     return model, optimizer, checkpoint['step']

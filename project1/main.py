@@ -46,15 +46,20 @@ ARGS, unknown = parser.parse_known_args()
 ###
 ### Data definition
 ###
+
+chosen_wdropout_params = [0, 0.5, 1]
+chosen_mu_force_beta_params = [0, 2, 3, 5, 10]
+chosen_freebits_params = [-1]
+
 config = Config(
     run_label=ARGS.run_label or '',
     batch_size=16,
-    embedding_size=50,
-    rnn_hidden_size=50,
-    vae_encoder_hidden_size=128,
-    param_wdropout_k=ARGS.wdropout_k or [0, 0.5, 1],
-    vae_decoder_hidden_size=128,
-    vae_latent_size=128,
+    vae_latent_size=16,
+    embedding_size=384,
+    rnn_hidden_size=192,
+    vae_encoder_hidden_size=320,
+    param_wdropout_k=ARGS.wdropout_k or chosen_wdropout_params,
+    vae_decoder_hidden_size=320,
     vocab_size=10000,
     validate_every=100,
     print_every=10,
@@ -180,7 +185,7 @@ for param_setting in param_grid:
     # Initalize results writer
     path_to_results = f'{config.results_path}/vae'
     params2string = '-'.join([f"{i}:{param_setting[i]}" for i in param_setting.keys()])
-    vae_results_writer: SummaryWriter = SummaryWriter(comment=f"config.run_label--{params2string}")
+    vae_results_writer: SummaryWriter = SummaryWriter(comment=f"{config.run_label}--{params2string}")
 
     sentence_decoder = make_sentence_decoder(cd.tokenizer, 1)
 

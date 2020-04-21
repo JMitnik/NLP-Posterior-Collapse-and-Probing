@@ -101,7 +101,9 @@ def evaluate_VAE(
             inp = batch[:, 0:-1].to(device)
 
             # Creat both prediction of next word and the posterior of which we sample Z.
-            preds, posterior = model(inp)
+            # Nr to sample
+            nr_MC_sample = 10 if eval_type == 'test' else 1
+            preds, posterior = model(inp, nr_MC_sample)
 
             # # Define target as the next word to predict
             target = batch[:, 1:].to(device)

@@ -50,7 +50,7 @@ class VAE(nn.Module):
         # TODO: Do we need to somehow prevent the gradient from being set?
         return input_seq * mask
 
-    def forward(self, x):
+    def forward(self, x, nr_multi_sample=1):
         embeds = self.embeddings(x)
         mu, sigma = self.encoder(embeds)
 
@@ -61,7 +61,7 @@ class VAE(nn.Module):
         )
 
         # Apply some dropout here
-        if self.param_wdropout_k < 1:
+        if self.training and self.param_wdropout_k < 1:
             """
             Only problem still is the the BOS will also be turned
             into an UNK token sometimes
@@ -75,8 +75,13 @@ class VAE(nn.Module):
             x = masked_x
             embeds = self.embeddings(x)
 
-        # Send to same device as where the input is
-        z = distribution.rsample().to(x.device)
+        if nr_multi_sample == 1:
+            z = distribution.rsample().to(x.device)
+        else:
+            # TODO: Test
+            z = distribution.rsample(torch.tensor([nr_multi_sample]))
+            z = z.mean(0)
+            z = z.to(x.device)
 
         pred = self.decoder(embeds, z)
 
