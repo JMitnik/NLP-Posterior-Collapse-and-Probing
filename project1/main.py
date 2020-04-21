@@ -58,15 +58,15 @@ config = Config(
     embedding_size=256,
     rnn_hidden_size=256,
     vae_encoder_hidden_size=320,
-    param_wdropout_k=ARGS.wdropout_k or chosen_wdropout_params,
+    param_wdropout_k=ARGS.wdropout_k or [0, 0.5, 1],
     vae_decoder_hidden_size=320,
     vocab_size=10000,
     validate_every=50,
     print_every=10,
     mu_force_beta_param=ARGS.mu_beta or [0, 2, 3, 5, 10],
-    freebits_param=ARGS.freebits or [0, 0.125, 0.25, 0.5, 1, 2, 4, 8],
-    will_train_rnn=True,
-    will_train_vae=False,
+    freebits_param=ARGS.freebits or [-1, 0.25, 0.5, 1, 2, 8],
+    will_train_rnn=False,
+    will_train_vae=True,
     nr_epochs=ARGS.nr_epochs or 5,
     results_path = 'results',
     train_path = '/data/02-21.10way.clean',
@@ -206,6 +206,7 @@ for param_setting in param_grid:
         )
 
     vae_results_writer.close()
+    print(f"Finished training for {params2string}!!!")
 
 
 # %%
