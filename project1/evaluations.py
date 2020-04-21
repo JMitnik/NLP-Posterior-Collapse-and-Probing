@@ -132,7 +132,7 @@ def evaluate_VAE(
             kl_loss = kl_loss.mean()
             nlll = nlll.mean()
 
-            sentence_length = batch[0].size()[0]
+            sentence_length = torch.sum(sl).item()
             perp = np.exp(loss.cpu().item() / sentence_length)
 
 

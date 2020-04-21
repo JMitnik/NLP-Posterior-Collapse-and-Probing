@@ -13,6 +13,7 @@ from utils import save_model
 import numpy as np
 
 def train_batch_rnn(model, optimizer, criterion, train_batch, device):
+    optimizer.zero_grad()
     inp = train_batch[:, 0:-1].to(device)
 
     # Current assumption: to not predikct past final token, we dont include the EOS tag in the input
@@ -54,7 +55,7 @@ def train_rnn(
         epoch_loss = 0
 
         for idx, (batch, sl) in enumerate(train_loader):
-            optimizer.zero_grad()
+          
             model.train()
 
             loss = train_batch_rnn(model, optimizer, loss_fn, batch, device)
@@ -64,7 +65,6 @@ def train_rnn(
 
             loss = loss / batch.shape[0]
           
-            
             epoch_perp += perplexity
             epoch_loss += loss
 

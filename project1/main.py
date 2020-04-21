@@ -92,7 +92,7 @@ criterion = nn.CrossEntropyLoss(
     ignore_index=0,
     reduction='sum'
 )
-optim = torch.optim.Adam(rnn_lm.parameters(), lr=0.0001)
+optim = torch.optim.Adam(rnn_lm.parameters(), lr=0.001)
 
 path_to_results = f'{config.results_path}/rnn'
 rnn_results_writer = SummaryWriter()
