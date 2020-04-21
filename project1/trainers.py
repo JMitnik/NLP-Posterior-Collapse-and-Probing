@@ -48,13 +48,23 @@ def train_rnn(
     previous_valid_loss = 1000
     for epoch in range(nr_epochs):
         print(f'Epoch: {epoch + 1} / {nr_epochs}')
+        
+        epoch_perp = 0
+        epoch_loss = 0
 
-        for idx, train_batch in enumerate(train_loader):
+        for idx, (batch, sl) in enumerate(train_loader):
             model.train()
-            loss = train_batch_rnn(model, optimizer, loss_fn, train_batch, device)
-            loss = loss / train_batch.shape[0]
-            sentence_length = train_batch[0].size()[0]
-            perplexity = np.exp(loss.item() /sentence_length)
+
+            loss = train_batch_rnn(model, optimizer, loss_fn, batch, device)
+        
+            all_words = torch.sum(sl).item()
+            perplexity = np.exp(loss.item() / all_words) / batch.size(0)
+
+            loss = loss / batch.shape[0]
+          
+            
+            epoch_perp += perplexity
+            epoch_loss += loss
 
             it = epoch * len(train_loader) + idx
             
@@ -80,6 +90,12 @@ def train_rnn(
                 print(f'Validation results || Loss: {valid_loss} || Perplexity {valid_perp}')
                 print()
                 model.train()
+ 
+        print('\n\n')
+        epoch_perp = epoch_perp / len(train_loader)
+        epoch_loss = epoch_loss / len(train_loader)
+        print(f'The Perplexity of Epoch {epoch+1}: {epoch_perp}')
+        print(f'The Loss of Epoch {epoch+1}: {epoch_loss}')
         print('\n\n')
     print("Done with training!")
 
@@ -112,10 +128,7 @@ def train_batch_vae(model, optimizer, criterion, train_batch, prior, device, mu_
     kl_loss = kl_loss.mean()
     nlll = nlll.mean()
     flattend_post = posterior.loc.flatten()
-    mu_max = torch.max(flattend_post)
-    mu_min = torch.min(flattend_post)
-
-
+ 
     writer.add_histogram('train-vae/mu', flattend_post, it)
 
     # Now add to the loss mu force loss

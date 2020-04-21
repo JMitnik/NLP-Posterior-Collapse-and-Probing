@@ -55,7 +55,7 @@ def evaluate_rnn(
     total_loss: float = 0
     total_perp: float = 0
 
-    for batch in data_loader:
+    for batch, sl in data_loader:
         with torch.no_grad():
             input = batch[:, 0: -1].to(device)
             target = batch[:, 1:].to(device)
@@ -63,13 +63,17 @@ def evaluate_rnn(
             output = model(input)
 
             loss = criterion(output.reshape(-1, model.vocab_size), target.reshape(-1))
-            sentence_length = batch[0].size()[0]
-            perp = np.exp((loss.item() / batch.shape[0]) / sentence_length)
-            total_loss += loss / len(batch)
-            total_perp += perp
-
-    total_loss = total_loss / len(data_loader)
+            
+            all_words = torch.sum(sl).item()
+            perplexity = np.exp(loss.item() / all_words) / batch.size(0)
+            
+            loss = loss / batch.shape[0]
+            total_loss += loss
+            total_perp += perplexity
+            
     total_perp = total_perp / len(data_loader)
+    total_loss = total_loss / len(data_loader)
+    
     
     writer.add_scalar(f'{eval_type}-rnn/loss' , total_loss, it)
     writer.add_scalar(f'{eval_type}-rnn/ppl' , total_perp, it)
@@ -97,7 +101,7 @@ def evaluate_VAE(
     total_perp: float = 0
     total_mu_loss: float = 0
 
-    for batch in data_loader:
+    for batch, sl in data_loader:
         with torch.no_grad():
             inp = batch[:, 0:-1].to(device)
 

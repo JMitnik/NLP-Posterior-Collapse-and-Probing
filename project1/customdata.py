@@ -55,7 +55,7 @@ class CustomData:
         sentence_lengths = [len(s) for s in batch]
         max_length = max(sentence_lengths)
         padded_batch = [s + [0] * (max_length - len(s)) for s in batch]
-        return torch.LongTensor(padded_batch)
+        return torch.LongTensor(padded_batch), torch.LongTensor(sentence_lengths)
 
 
 class PTBDataset(Dataset):
