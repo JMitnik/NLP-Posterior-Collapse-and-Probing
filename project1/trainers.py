@@ -187,12 +187,13 @@ def train_vae(
             )
 
             loss, kl_loss, nlll, mu_loss = loss
-            
+            sentence_length = train_batch[0].size()[0]
+            perplexity = np.exp(loss /sentence_length)
             # print and log every 50 iterations
             if idx % config.print_every == 0:
-                print(f'Iteration: {it} || KL Loss: {kl_loss} || NLLL: {nlll} || MuLoss: {mu_loss} || Total: {loss}')
+                print(f'Iteration: {it} || NLLL: {nlll} || Perp: {perplexity} || KL Loss: {kl_loss} || MuLoss: {mu_loss} || Total: {loss}')
                 results_writer.add_scalar('train-vae/elbo-loss', loss, it)
-                results_writer.add_scalar('train-vae/ppl', torch.log(torch.tensor(loss)), it)
+                results_writer.add_scalar('train-vae/ppl', perplexity, it)
                 results_writer.add_scalar('train-vae/kl-loss', kl_loss, it)
                 results_writer.add_scalar('train-vae/nll-loss', nlll, it)
                 results_writer.add_scalar('train-vae/mu-loss', mu_loss, it)
@@ -222,7 +223,7 @@ def train_vae(
 
             if idx % config.validate_every == 0 and it != 0:
                 print('Validating model')
-                valid_total_loss, valid_total_kl_loss, valid_total_nlll, valid_total_mu_loss = evaluate_VAE(model,
+                valid_total_loss, valid_total_kl_loss, valid_total_nlll, valid_perp, valid_total_mu_loss = evaluate_VAE(model,
                     valid_loader,
                     epoch,
                     device,
@@ -256,7 +257,7 @@ def train_vae(
                     print('New Best Validation score!')
                     best_valid_loss = previous_valid_loss
                     save_model(f'vae_best_mu{mu_force_beta_param}_wd{model.param_wdropout_k}_fb{freebits_param}', model, optimizer, it)
-                    print(f'Validation Results || Elbo loss: {valid_total_loss} || KL loss: {valid_total_kl_loss} || NLLL {valid_total_nlll} || MU loss {valid_total_mu_loss}')
+                    print(f'Validation Results || Elbo loss: {valid_total_loss} || KL loss: {valid_total_kl_loss} || NLLL {valid_total_nlll} || Perp: {valid_perp} ||MU loss {valid_total_mu_loss}')
                     print()
                 model.train()
 

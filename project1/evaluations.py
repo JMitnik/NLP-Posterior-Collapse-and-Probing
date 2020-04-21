@@ -94,6 +94,7 @@ def evaluate_VAE(
     total_loss: float = 0
     total_kl_loss: float = 0
     total_nlll: float = 0
+    total_perp: float = 0
     total_mu_loss: float = 0
 
     for batch in data_loader:
@@ -120,6 +121,9 @@ def evaluate_VAE(
             loss = loss.mean()
             kl_loss = kl_loss.mean()
             nlll = nlll.mean()
+            
+            sentence_length = batch[0].size()[0]
+            perp = np.exp(loss.cpu().item() / sentence_length)
 
 
 
@@ -134,11 +138,13 @@ def evaluate_VAE(
             total_loss += loss.item()
             total_kl_loss += kl_loss.item()
             total_nlll += nlll.item()
+            total_perp += perp
             total_mu_loss += mu_force_loss_var.item()
 
     total_loss = total_loss / len(data_loader)
     total_kl_loss = total_kl_loss / len(data_loader)
     total_nlll = total_nlll / len(data_loader)
+    total_perp = total_perp / len(data_loader)
     total_mu_loss = total_mu_loss / len(data_loader)
 
     results_writer.add_scalar(f'{eval_type}-vae/elbo-loss', total_loss, iteration)
@@ -147,4 +153,4 @@ def evaluate_VAE(
     results_writer.add_scalar(f'{eval_type}-vae/nll-loss', total_nlll, iteration)
     results_writer.add_scalar(f'{eval_type}-vae/mu-loss', total_mu_loss, iteration)
 
-    return total_loss, total_kl_loss, total_nlll, total_mu_loss
+    return total_loss, total_kl_loss, total_nlll, total_perp, total_mu_loss
