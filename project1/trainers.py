@@ -102,6 +102,7 @@ def train_rnn(
     print("Done with training!")
 
 
+
 def train_batch_vae(model, optimizer, criterion, train_batch, prior, device, mu_force_beta_param, writer, it):
     """
     Trains single batch of VAE
