@@ -82,7 +82,12 @@ test_loader = cd.get_data_loader(type='test', shuffle=False)
 loss_fn = make_elbo_criterion(config.vocab_size, -1, 0)
 
 # %%
-best_saved_models = ['vae_best_mu5_wd1.0_fb-1.pt']
+best_saved_models = [
+    'vae_best_mu3_wd1.0_fb0.25.pt',
+    'vae_best_mu0_wd1.0_fb-1.pt',
+    'vae_best_mu5_wd1.0_fb-1.pt',
+    'vae_best_mu5_wd1.0_fb-1.pt',
+]
 
 for model_path in best_saved_models:
     if 'vae' in model_path:
@@ -104,4 +109,8 @@ for model_path in best_saved_models:
         model, _, _ = utils.load_model(path_to_model, model, config.device)
         model = model.to(config.device)
         vae_results_writer: SummaryWriter = SummaryWriter(comment=f"EVAL_{config.run_label}--{model_path}")
-        evaluate_VAE(model, test_loader, -1, config.device, loss_fn, 0, prior, vae_results_writer, 'test')
+        test_total_loss, test_total_kl_loss, test_total_nlll, test_perp, test_total_mu_loss = evaluate_VAE(model, test_loader, -1, config.device, loss_fn, 0, prior, vae_results_writer, 'test')
+
+        print(f'For model {model_path}: \n')
+        print(f'Test Results || Elbo loss: {test_total_loss} || KL loss: {test_total_kl_loss} || NLLL {test_total_nlll} || Perp: {test_perp} ||MU loss {test_total_mu_loss}')
+
