@@ -10,14 +10,15 @@ def make_elbo_criterion(vocab_size: int, freebits_param=-1, mu_force_beta_param=
         prior_dist: torch.distributions.Distribution,
         posterior_dist: torch.distributions.Distribution
     ):
-        kl_loss = torch.distributions.kl_divergence(prior_dist, posterior_dist).sum(1).to(prediction.device)
+        kl_divergence = torch.distributions.kl_divergence(prior_dist, posterior_dist)
 
         # Free bit implementation
         if freebits_param >= 0:
-            # do it for each dim first, and then sum
-            freebits_tensor = torch.full_like(kl_loss, fill_value=freebits_param, dtype=torch.float)
-            freebit_loss = torch.max(kl_loss, freebits_tensor)
-            kl_loss = freebit_loss
+            # Mean across mini-batch needs to be larger than freebits_param
+            hinge_mask = kl_divergence.mean(0) > freebits_param
+            kl_divergence.T[hinge_mask] = freebits_param
+
+        kl_loss = kl_divergence.sum(1).to(prediction.device)
 
         negative_log_likelihood = likelihood_criterion(
             prediction.view([-1, vocab_size]),
