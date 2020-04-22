@@ -7,7 +7,7 @@ import numpy as np
 def generate_next_words(
     model,
     custom_data,
-    start_sent="as they parked out front and owen stepped out of the car , he could see",
+    start_sent="as they parked out front",
     device='cpu',
     max_length=10,
     temperature=1

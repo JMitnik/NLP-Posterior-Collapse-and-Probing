@@ -25,6 +25,7 @@ from config import Config
 from torch.utils.tensorboard.writer import SummaryWriter
 from evaluations import generate_next_words
 from customdata import CustomData
+from evaluations import evaluate_rnn
 
 #%%
 import argparse
@@ -108,14 +109,25 @@ if config.will_train_rnn:
         device=config.device,
         results_writer=rnn_results_writer
 )
+else:
+    rnn_lm, optim, cp = utils.load_model('models/saved_models/rnn_best.pt', rnn_lm, config.device, optim)
 
-
+# %%
+rnn_loss_fn = loss_fn = nn.CrossEntropyLoss(ignore_index=0, reduction='sum')
+rnn_test_loss, rnn_test_perp = evaluate_rnn(rnn_lm, test_loader, 0, config.device, rnn_loss_fn, rnn_results_writer, eval_type='test')
+print(f'RNN || Test Loss: {rnn_test_loss :.4f} || Test Perp: {rnn_test_perp:.4f}')
 # %%
 ###
 ### Evaluation of RNN
 ###
-generated_sentence = generate_next_words(rnn_lm, cd, device=config.device)
+generated_sentence = generate_next_words(rnn_lm, cd, device=config.device, start_sent="bank stock dropped", max_length=20)
 print(cd.tokenizer.decode(generated_sentence))
+
+# %%
+total_sents = len(train_loader) + len(valid_loader) + len(test_loader)
+print(len(train_loader) / total_sents * 100)
+print(len(valid_loader) / total_sents * 100)
+print(len(test_loader) / total_sents * 100)
 
 # %%
 import models.VAE

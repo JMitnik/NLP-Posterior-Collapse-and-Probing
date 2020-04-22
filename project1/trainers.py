@@ -102,6 +102,7 @@ def train_rnn(
     print("Done with training!")
 
 
+
 def train_batch_vae(model, optimizer, criterion, train_batch, prior, device, mu_force_beta_param, writer, it):
     """
     Trains single batch of VAE
@@ -231,7 +232,7 @@ def train_vae(
                     'kl': kl_loss,
                     'nll-loss': nlll,
                     'mu-loss': mu_loss,
-                    'ppl': torch.log(torch.tensor(loss)),
+                    'ppl': perplexity,
                     'epoch': epoch,
                     'iteration': it
                 }, ignore_index=True)
@@ -260,7 +261,7 @@ def train_vae(
                     'kl': valid_total_kl_loss,
                     'nll-loss': valid_total_nlll,
                     'mu-loss': valid_total_mu_loss,
-                    'ppl': torch.log(torch.tensor(loss)),
+                    'ppl': valid_perp,
                     'epoch': epoch,
                     'iteration': it
                 }, ignore_index=True)
