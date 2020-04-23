@@ -14,7 +14,7 @@ class VAE(nn.Module):
         latent_size: int,
         vocab_size: int,
         embedding_size: int,
-        param_wdropout_k: float = 1,
+        param_wdropout_k = 1,
         token_unknown_index: int = 0
     ):
         super().__init__()

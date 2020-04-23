@@ -1,16 +1,8 @@
 # %% [markdown]
 # ## Imports
-from dataclasses import asdict
 from losses import make_elbo_criterion
 from models.VAE import VAE
-import os
-import numpy as np
 import importlib
-from collections import OrderedDict
-from operator import iconcat
-from trainers import train_rnn, train_vae
-from nltk import Tree
-from nltk.treeprettyprinter import TreePrettyPrinter
 
 # Model-related imports
 import torch
@@ -56,16 +48,16 @@ config = Config(
     run_label=ARGS.run_label or '',
     batch_size=16,
     vae_latent_size=16,
-    embedding_size=384,
-    rnn_hidden_size=192,
+    embedding_size=256,
+    rnn_hidden_size=256,
     vae_encoder_hidden_size=320,
-    param_wdropout_k=ARGS.wdropout_k or chosen_wdropout_params,
+    param_wdropout_k=ARGS.wdropout_k or [0, 0.5, 1],
     vae_decoder_hidden_size=320,
     vocab_size=10000,
-    validate_every=1000,
-    print_every=500,
-    freebits_param=chosen_freebits_params,
-    mu_force_beta_param=ARGS.mu_beta or chosen_mu_force_beta_params,
+    validate_every=50,
+    print_every=10,
+    mu_force_beta_param=ARGS.mu_beta or [0, 2, 3, 5, 10],
+    freebits_param=ARGS.freebits or [-1, 0.25, 0.5, 1, 2, 8],
     will_train_rnn=False,
     will_train_vae=True,
     nr_epochs=ARGS.nr_epochs or 5,
@@ -83,9 +75,9 @@ loss_fn = make_elbo_criterion(config.vocab_size, -1, 0)
 
 # %%
 best_saved_models = [
+    'vae_best_mu5_wd1.0_fb-1.0.pt',
+    'vae_best_mu0_wd1.0_fb0.25.pt',
     'vae_best_mu3_wd1.0_fb0.25.pt',
-    'vae_best_mu0_wd1.0_fb-1.pt',
-    'vae_best_mu5_wd1.0_fb-1.pt',
     'vae_best_mu5_wd1.0_fb-1.pt',
 ]
 
