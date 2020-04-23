@@ -45,6 +45,6 @@ def calc_mu_loss(posterior, batch_size):
     batch_mean_vectors = posterior.loc # mu(n) mu vector of nth sample
     avg_batch_mean_vector = batch_mean_vectors.mean(0) # mu(stripe) mean of vectors mu
     mu_force_loss_var = torch.tensordot(batch_mean_vectors - avg_batch_mean_vector, batch_mean_vectors - avg_batch_mean_vector, 2) / batch_size / 2
-    mu_force_loss: = torch.max(torch.tensor([0.0]), mu_force_beta_param - mu_force_loss_var)
+    mu_force_loss = torch.max(torch.tensor([0.0]), mu_force_beta_param - mu_force_loss_var)
 
     return mu_force_loss
