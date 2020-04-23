@@ -8,7 +8,6 @@ import os
 @dataclass
 class ResultsWriter:
     label: str
-    path_to_results_folder: str
 
     # Tensorboard writer
     run_dir: str = field(default_factory=lambda: utils.generate_run_name())

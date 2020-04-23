@@ -88,7 +88,7 @@ criterion = nn.CrossEntropyLoss(
 optim = torch.optim.Adam(rnn_lm.parameters(), lr=0.001)
 
 path_to_results = f'{config.results_path}/rnn'
-rnn_results_writer = SummaryWriter()
+rnn_results_writer = ResultsWriter(label=f'{config.run_label}--rnn')
 
 if config.will_train_rnn:
     train_rnn(
@@ -103,6 +103,8 @@ if config.will_train_rnn:
 )
 else:
     rnn_lm, optim, cp = utils.load_model('models/saved_models/rnn_best.pt', rnn_lm, config.device, optim)
+
+rnn_results_writer.tensorboard_writer.close()
 
 ###
 ###-------------------- START VAE -----------------------##
@@ -138,11 +140,10 @@ for param_setting in param_grid:
     # Initalize results writer
     path_to_results = f'{run_config.results_path}/vae'
     params2string = '-'.join([f"{i}:{param_setting[i]}" for i in param_setting.keys()])
+
     results_writer = ResultsWriter(
         label=f'{run_config.run_label}--vae-{params2string}',
-        path_to_results_folder=f'{run_config.results_path}/{run_config.run_label}--vae',
     )
-    vae_results_writer: SummaryWriter = SummaryWriter(comment=f"{run_config.run_label}--{params2string}")
 
     sentence_decoder = utils.make_sentence_decoder(cd.tokenizer, 1)
 
@@ -155,12 +156,13 @@ for param_setting in param_grid:
             valid_loader,
             nr_epochs=run_config.nr_epochs,
             device=run_config.device,
-            results_writer=vae_results_writer,
+            results_writer=results_writer,
             config=run_config,
             decoder=sentence_decoder,
         )
 
-    vae_results_writer.close()
+    results_writer.tensorboard_writer.close()
+
     print(f"Finished training for {params2string}!!!")
 
 

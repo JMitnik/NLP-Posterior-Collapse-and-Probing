@@ -10,7 +10,7 @@ from models.VAE import VAE
 from models.RNNLM import RNNLM
 import torch
 import os
-from evaluations import evaluate_VAE, evaluate_rnn
+from inference.evaluate_vae import evaluate_vae
 from utils import save_model
 import numpy as np
 
@@ -90,7 +90,7 @@ def train_vae(
 
             if idx % config.validate_every == 0 and it != 0:
                 print('Validating model')
-                valid_losses, valid_perp = evaluate_VAE(model,
+                valid_losses, valid_perp = evaluate_vae(model,
                     valid_loader,
                     epoch,
                     device,
