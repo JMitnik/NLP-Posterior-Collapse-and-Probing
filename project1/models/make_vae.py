@@ -13,6 +13,6 @@ def make_vae(config, trained=False, model_path=None):
     ).to(config.device)
 
     if trained and model_path is not None:
-        vae = utils.load_model(model_path, vae, config.device)
+        vae, _, _ = utils.load_model(model_path, vae, config.device)
 
     return vae

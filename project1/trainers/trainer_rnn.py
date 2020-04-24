@@ -69,7 +69,11 @@ def train_rnn(
             # Validate the model and save if the model is better
             if it % config.validate_every == 0 and it != 0:
                 print("Validating model")
-                valid_loss, valid_perp = evaluate_rnn(model, valid_loader, it, device, loss_fn, results_writer, it=it)
+                valid_loss, valid_perp = evaluate_rnn(model, valid_loader, it, device, loss_fn, it=it)
+
+                results_dict = make_rnn_results_dict(valid_loss, valid_perp, model, config, epoch, it)
+                results_writer.add_valid_results(results_dict)
+
                 previous_valid_loss = valid_loss
 
                 if previous_valid_loss < best_valid_loss:
@@ -84,8 +88,8 @@ def train_rnn(
         print('\n\n')
         epoch_perp = epoch_perp / len(train_loader)
         epoch_loss = epoch_loss / len(train_loader)
-        print(f'The Perplexity of Epoch {epoch+1}: {epoch_perp}')
-        print(f'The Loss of Epoch {epoch+1}: {epoch_loss}')
+        print(f'The approximate average perplexity of Epoch {epoch+1}: {epoch_perp}')
+        print(f'The approximate average loss of Epoch {epoch+1}: {epoch_loss}')
         print('\n\n')
     print("Done with training!")
 

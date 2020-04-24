@@ -26,6 +26,7 @@ class Config:
     # Commands
     will_train_rnn: bool = False
     will_train_vae: bool = True
+    will_grid_search: bool = False
 
     # VAE sizes
     vae_encoder_hidden_size: int = 0
@@ -40,6 +41,5 @@ class Config:
     # Training configurations
     # How often we validate our model, in iterations
     validate_every: int = 1000
-
-    # How often we print our results
     print_every: int = 100
+    train_text_gen_every: int = 3000

@@ -10,10 +10,10 @@ from trainers.trainer_vae import train_vae
 # Model-related imports
 import torch
 import torch.nn as nn
+
 from utils import make_param_grid
 from models.RNNLM import RNNLM
 from models.VAE import VAE
-from torch.utils.tensorboard.writer import SummaryWriter
 
 import utils
 from config import Config
@@ -40,9 +40,9 @@ ARGS, unknown = parser.parse_known_args()
 ### Data definition
 ###
 
-chosen_wdropout_params = [0, 0.5, 1]
-chosen_mu_force_beta_params = [0, 2, 3, 5, 10]
-chosen_freebits_params = [-1]
+chosen_wdropout_params = [1]
+chosen_mu_force_beta_params = [0, 2, 3, 5]
+chosen_freebits_params = [0, 1, 2, 4, 8]
 
 config = Config(
     run_label=ARGS.run_label or '',
@@ -87,7 +87,6 @@ criterion = nn.CrossEntropyLoss(
 )
 optim = torch.optim.Adam(rnn_lm.parameters(), lr=0.001)
 
-path_to_results = f'{config.results_path}/rnn'
 rnn_results_writer = ResultsWriter(label=f'{config.run_label}--rnn')
 
 if config.will_train_rnn:
@@ -118,35 +117,30 @@ potential_params = OrderedDict({
 
 param_grid = [
     {
-        'free_bits_param': 4,
-        'mu_force_beta_param': 5,
-        'param_wdropout_k': 1
-    },
-    {
-        'free_bits_param': 8,
-        'mu_force_beta_param': 5,
-        'param_wdropout_k': 1
-    },
-    # {
-    #     'free_bits_param': -1,
-    #     'mu_force_beta_param': 0,
-    #     'param_wdropout_k': 1
-    # },
-    {
-        'free_bits_param': 2,
+        'free_bits_param': 0,
         'mu_force_beta_param': 0,
         'param_wdropout_k': 1
     },
     {
-        'free_bits_param': 2,
+        'free_bits_param': 0,
+        'mu_force_beta_param': 0.5,
+        'param_wdropout_k': 1
+    },
+    {
+        'free_bits_param': 0,
         'mu_force_beta_param': 2,
         'param_wdropout_k': 1
     },
-    # {
-    #     'free_bits_param': -1,
-    #     'mu_force_beta_param': 5,
-    #     'param_wdropout_k': 1
-    # },
+    {
+        'free_bits_param': 0,
+        'mu_force_beta_param': 3,
+        'param_wdropout_k': 1
+    },
+    {
+        'free_bits_param': 0,
+        'mu_force_beta_param': 5,
+        'param_wdropout_k': 1
+    },
 ]
 
 # %%

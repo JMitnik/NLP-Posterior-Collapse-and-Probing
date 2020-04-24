@@ -1,3 +1,4 @@
+from tools.results_writer import ResultsWriter
 import torch
 from metrics import calc_batch_perplexity
 
@@ -7,7 +8,6 @@ def evaluate_rnn(
     epoch,
     device,
     criterion,
-    writer,
     eval_type: str = 'valid',
     it: int = 0
 ):
@@ -24,7 +24,7 @@ def evaluate_rnn(
             output = model(input)
 
             loss = criterion(output.reshape(-1, model.vocab_size), target.reshape(-1))
-            perp = calc_batch_perplexity(loss.item(), sent_length)
+            perp = calc_batch_perplexity(loss, sent_length)
 
             loss = loss / batch.shape[0]
             total_loss += loss
@@ -32,9 +32,4 @@ def evaluate_rnn(
 
     total_perp = total_perp / len(data_loader)
     total_loss = total_loss / len(data_loader)
-
-
-    writer.add_scalar(f'{eval_type}-rnn/loss' , total_loss, it)
-    writer.add_scalar(f'{eval_type}-rnn/ppl' , total_perp, it)
-
     return total_loss, total_perp

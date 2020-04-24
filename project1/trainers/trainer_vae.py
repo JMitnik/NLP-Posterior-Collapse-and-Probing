@@ -63,30 +63,35 @@ def train_vae(
         for idx, (train_batch, batch_sent_lengths) in enumerate(train_loader):
             it = epoch * len(train_loader) + idx
 
-            batch_loss, preds = train_batch_vae(
+            batch_loss, perp, preds = train_batch_vae(
                 model,
                 optimizer,
                 loss_fn,
                 train_batch,
                 device,
                 config.mu_force_beta_param,
+                batch_sent_lengths,
                 results_writer,
                 it
             )
             elbo_loss, kl_loss, nlll, mu_loss = batch_loss
 
-            # Calculate metrics
-            perp = calc_batch_perplexity(elbo_loss, batch_sent_lengths)
-
-            if idx % config.print_every == 0:
+            if it % config.print_every == 0:
                 print(f'Iteration: {it} || NLLL: {nlll} || Perp: {perp} || KL Loss: {kl_loss} || MuLoss: {mu_loss} || Total: {elbo_loss}')
-                decoded_first_pred = decoder(preds)
-                decoded_first_true = decoder(train_batch[:, 1:])
-                results_writer.add_sentence_predictions(decoded_first_pred, decoded_first_true, it)
 
                 # Store in the table
                 train_vae_results = make_vae_results_dict(batch_loss, perp, model, config, epoch, it)
                 results_writer.add_train_batch_results(train_vae_results)
+
+            if it % config.train_text_gen_every == 0:
+                with torch.no_grad():
+                    decoded_first_pred = decoder(preds.detach())
+                    decoded_first_true = decoder(train_batch[:, 1:])
+                    results_writer.add_sentence_predictions(decoded_first_pred, decoded_first_true, it)
+
+                    print(f'VAE is generating sentences on {it}: \n')
+                    print(f'\t The true sentence is: "{decoded_first_true}" \n')
+                    print(f'\t The predicted sentence is: "{decoded_first_pred}" \n')
 
             if idx % config.validate_every == 0 and it != 0:
                 print('Validating model')
@@ -96,7 +101,6 @@ def train_vae(
                     device,
                     loss_fn,
                     config.mu_force_beta_param,
-                    results_writer,
                     iteration = it
                 )
 
@@ -122,7 +126,7 @@ def train_vae(
     print('Done training the VAE')
 
 
-def train_batch_vae(model, optimizer, criterion, train_batch, device, mu_force_beta_param, writer: ResultsWriter, it):
+def train_batch_vae(model, optimizer, criterion, train_batch, device, mu_force_beta_param, sent_lengths, writer: ResultsWriter, it):
     """
     Trains single batch of VAE
     """
@@ -138,16 +142,18 @@ def train_batch_vae(model, optimizer, criterion, train_batch, device, mu_force_b
     target = train_batch[:, 1:].to(device)
 
     # Calc loss by using the ELBO-criterion
-    loss, kl_loss, nlll = criterion(
+    loss, kl_loss, nll = criterion(
         preds,
         target,
         posterior
     )
 
+    perp = calc_batch_perplexity(nll.detach(), sent_lengths)
+
     # Take mean of mini-batch loss
     loss = loss.mean()
     kl_loss = kl_loss.mean()
-    nlll = nlll.mean()
+    nll = nll.mean()
 
     # Add Mu density plot to tensorboard
     flattened_posterior = posterior.loc.flatten()
@@ -162,6 +168,6 @@ def train_batch_vae(model, optimizer, criterion, train_batch, device, mu_force_b
     optimizer.step()
 
     # Define all losses for reporting
-    losses = loss.item(), kl_loss.item(), nlll.item(), mu_force_loss.item()
+    losses = loss.item(), kl_loss.item(), nll.item(), mu_force_loss.item()
 
-    return losses, preds
+    return losses, perp, preds

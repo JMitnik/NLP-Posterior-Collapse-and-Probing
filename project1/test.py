@@ -73,11 +73,10 @@ cd = CustomData(config)
 test_loader = cd.get_data_loader(type='test', shuffle=False)
 # %%
 best_saved_models = [
-    'vae_best_mu5_wd1_fb-1.pt',
-    'vae_best_mu0_wd1_fb-1.pt',
-    'vae_best_mu0_wd1_fb0.pt',
-    'vae_best_mu3_wd1_fb0.25.pt',
-    # 'vae_best_mu5_wd1.0_fb0.pt',
+    'vae_best_mu0_wd1_fb0.pt', # Vanilla
+    'vae_best_mu3_wd1_fb0.pt', # Mu only
+    'vae_best_mu0_wd1_fb2.pt', # Freebits only
+    'vae_best_mu2_wd1_fb2.pt', # Best in total: Freebits and mu
 ]
 
 for model_path in best_saved_models:
@@ -102,6 +101,7 @@ for model_path in best_saved_models:
         path_to_model = f'results/saved_models/{model_path}'
         model, _, _ = utils.load_model(path_to_model, model, config.device)
         model = model.to(config.device)
+
         vae_results_writer: SummaryWriter = SummaryWriter(comment=f"EVAL_{config.run_label}--{model_path}")
         (test_total_loss, test_total_kl_loss, test_total_nlll, test_total_mu_loss), test_perp = evaluate_vae(
             model,

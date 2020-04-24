@@ -8,14 +8,13 @@ def evaluate_vae(
     device: str,
     criterion,
     mu_force_beta_param,
-    results_writer,
     eval_type: str = 'valid',
     iteration: int = 0
 ):
     model.eval()
     total_loss: float = 0
     total_kl_loss: float = 0
-    total_nlll: float = 0
+    total_nll: float = 0
     total_perp: float = 0
     total_mu_loss: float = 0
 
@@ -25,6 +24,7 @@ def evaluate_vae(
 
             # Creat both prediction of next word and the posterior of which we sample Z.
             # Nr to sample
+            # nr_MC_sample = 10 if eval_type == 'test' else 1 # Did not work out unfortunately
             nr_MC_sample = 1 if eval_type == 'test' else 1
             preds, posterior = model(inp, nr_MC_sample)
 
@@ -38,17 +38,20 @@ def evaluate_vae(
             target = batch[:, 1:].to(device)
 
             # Calc loss by using the ELBO-criterion
-            loss, kl_loss, nlll = criterion(
+            loss, kl_loss, nll = criterion(
                 preds,
                 target,
                 posterior
             )
 
+            # Perplexity
+            perp = calc_batch_perplexity(nll.detach(), sent_lengths)
+
             # Calc perplexity
             # Take mean of mini-batch loss
             loss = loss.mean()
             kl_loss = kl_loss.mean()
-            nlll = nlll.mean()
+            nll = nll.mean()
 
             # Now add to the loss mu force loss
             batch_mean_vectors = posterior.loc
@@ -58,18 +61,17 @@ def evaluate_vae(
 
             loss = loss + mu_force_loss
 
-            perp = calc_batch_perplexity(loss.item(), sent_lengths)
 
             total_loss += loss.item()
             total_kl_loss += kl_loss.item()
-            total_nlll += nlll.item()
+            total_nll += nll.item()
             total_perp += perp
             total_mu_loss += mu_force_loss_var.item()
 
     total_loss = total_loss / len(data_loader)
     total_kl_loss = total_kl_loss / len(data_loader)
-    total_nlll = total_nlll / len(data_loader)
+    total_nll = total_nll / len(data_loader)
     total_perp = total_perp / len(data_loader)
     total_mu_loss = total_mu_loss / len(data_loader)
 
-    return (total_loss, total_kl_loss, total_nlll, total_mu_loss), total_perp
+    return (total_loss, total_kl_loss, total_nll, total_mu_loss), total_perp

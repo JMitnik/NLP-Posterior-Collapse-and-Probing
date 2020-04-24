@@ -37,10 +37,14 @@ def make_elbo_criterion(vocab_size: int, latent_size, freebits_param=-1, mu_forc
 
     return elbo_criterion
 
-def calc_batch_perplexity(loss: torch.Tensor, sentence_lengths: torch.Tensor):
+def calc_batch_perplexity(nll_loss: torch.Tensor, sentence_lengths: torch.Tensor):
+    # Count all nll-loss
+    nll_loss_sum = nll_loss.sum(0).item()
+
+    # Count nr words
     nr_words_batch: int = int(torch.sum(sentence_lengths).item())
 
-    return np.exp(loss / nr_words_batch)
+    return np.exp(nll_loss_sum / nr_words_batch)
 
 def calc_mu_loss(posterior, batch_size, mu_force_beta_param):
     batch_mean_vectors = posterior.loc # mu(n) mu vector of nth sample

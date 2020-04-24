@@ -10,7 +10,7 @@ class ResultsWriter:
     label: str
 
     # Tensorboard writer
-    run_dir: str = field(default_factory=lambda: utils.generate_run_name())
+    run_dir: str = ''
 
     # Dataframes to store the results
     df_train_batch_results: pd.DataFrame = field(default_factory=lambda: pd.DataFrame())
@@ -20,6 +20,7 @@ class ResultsWriter:
     df_valid_results: pd.DataFrame = field(default_factory=lambda: pd.DataFrame())
 
     def __post_init__(self):
+        self.run_dir = f'{utils.generate_run_name()}-{self.label}'
         self.tensorboard_writer = SummaryWriter(log_dir=self.run_dir, comment=self.label)
 
     def add_train_batch_results(self, train_results_dict):
@@ -54,7 +55,7 @@ class ResultsWriter:
         self.df_train_batch_results = self.df_train_batch_results.append({'label': self.label, **valid_results_dict}, ignore_index=True)
 
         # Write scalars to tensorboard: if loss or metric in name, assume it is a scalar
-        self.add_tensorboard_scalars_from_dict(valid_results_dict, 'train')
+        self.add_tensorboard_scalars_from_dict(valid_results_dict, 'valid')
 
     def add_sentence_predictions(self, predictions, truth, it):
         """
@@ -71,7 +72,7 @@ class ResultsWriter:
 
         if not os.path.exists(filename):
             os.makedirs(os.path.dirname(filename), exist_ok=True)
-            self.df_train_batch_results.to_csv(filename, header=False)
+            self.df_train_batch_results.to_csv(filename, header=True)
             return
 
         self.df_train_batch_results.to_csv(filename, mode='a', header=False)
@@ -84,7 +85,7 @@ class ResultsWriter:
 
         if not os.path.exists(filename):
             os.makedirs(os.path.dirname(filename), exist_ok=True)
-            self.df_train_batch_results.to_csv(filename, header=False)
+            self.df_train_batch_results.to_csv(filename, header=True)
             return
 
         self.df_valid_results.to_csv(filename, mode='a', header=False)
