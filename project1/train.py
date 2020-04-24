@@ -17,7 +17,7 @@ from torch.utils.tensorboard.writer import SummaryWriter
 
 import utils
 from config import Config
-from customdata import CustomData
+from tools.customdata import CustomData
 
 #%%
 import argparse
@@ -46,7 +46,7 @@ chosen_freebits_params = [-1]
 
 config = Config(
     run_label=ARGS.run_label or '',
-    batch_size=16,
+    batch_size=64,
     vae_latent_size=16,
     embedding_size=256,
     rnn_hidden_size=256,
@@ -115,7 +115,39 @@ potential_params = OrderedDict({
     'param_wdropout_k': np.hstack([config.param_wdropout_k]),
     'mu_force_beta_param': np.hstack([config.mu_force_beta_param]),
 })
-param_grid = make_param_grid(potential_params)
+
+param_grid = [
+    {
+        'free_bits_param': 4,
+        'mu_force_beta_param': 5,
+        'param_wdropout_k': 1
+    },
+    {
+        'free_bits_param': 8,
+        'mu_force_beta_param': 5,
+        'param_wdropout_k': 1
+    },
+    # {
+    #     'free_bits_param': -1,
+    #     'mu_force_beta_param': 0,
+    #     'param_wdropout_k': 1
+    # },
+    {
+        'free_bits_param': 2,
+        'mu_force_beta_param': 0,
+        'param_wdropout_k': 1
+    },
+    {
+        'free_bits_param': 2,
+        'mu_force_beta_param': 2,
+        'param_wdropout_k': 1
+    },
+    # {
+    #     'free_bits_param': -1,
+    #     'mu_force_beta_param': 5,
+    #     'param_wdropout_k': 1
+    # },
+]
 
 # %%
 for param_setting in param_grid:

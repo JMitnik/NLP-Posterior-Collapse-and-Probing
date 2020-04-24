@@ -20,7 +20,7 @@ def make_elbo_criterion(vocab_size: int, latent_size, freebits_param=-1, mu_forc
         # Free bit implementation
         if freebits_param >= 0:
             # Mean across mini-batch needs to be larger than freebits_param
-            hinge_mask = kl_divergence.mean(0) > freebits_param
+            hinge_mask = kl_divergence.mean(0) < freebits_param
             kl_divergence.T[hinge_mask] = freebits_param
 
         kl_loss = kl_divergence.sum(1).to(prediction.device)
@@ -39,9 +39,10 @@ def make_elbo_criterion(vocab_size: int, latent_size, freebits_param=-1, mu_forc
 
 def calc_batch_perplexity(loss: torch.Tensor, sentence_lengths: torch.Tensor):
     nr_words_batch: int = int(torch.sum(sentence_lengths).item())
-    return np.exp(loss.item() / nr_words_batch)
 
-def calc_mu_loss(posterior, batch_size):
+    return np.exp(loss / nr_words_batch)
+
+def calc_mu_loss(posterior, batch_size, mu_force_beta_param):
     batch_mean_vectors = posterior.loc # mu(n) mu vector of nth sample
     avg_batch_mean_vector = batch_mean_vectors.mean(0) # mu(stripe) mean of vectors mu
     mu_force_loss_var = torch.tensordot(batch_mean_vectors - avg_batch_mean_vector, batch_mean_vectors - avg_batch_mean_vector, 2) / batch_size / 2

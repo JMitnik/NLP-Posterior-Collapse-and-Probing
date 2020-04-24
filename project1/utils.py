@@ -30,7 +30,13 @@ def save_model(path, model, optimizer, step):
     checkpoint = {'state_dict': model.state_dict(),
                   'optimizer': optimizer.state_dict(),
                   'step': step}
-    torch.save(checkpoint, f'models/saved_models/{path}.pt')
+
+    path_to_saved_model = f'results/saved_models/{path}.pt'
+
+    if not os.path.exists(path_to_saved_model):
+        os.makedirs(os.path.dirname(path_to_saved_model), exist_ok=True)
+
+    torch.save(checkpoint, path_to_saved_model)
 
 def load_model(path, model, device, optimizer=None):
     """

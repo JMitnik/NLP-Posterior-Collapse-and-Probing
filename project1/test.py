@@ -1,6 +1,6 @@
 # %% [markdown]
 # ## Imports
-from losses import make_elbo_criterion
+from metrics import make_elbo_criterion
 from models.VAE import VAE
 import importlib
 
@@ -17,8 +17,8 @@ importlib.reload(utils)
 
 from config import Config
 from torch.utils.tensorboard.writer import SummaryWriter
-from evaluations import evaluate_VAE, evaluate_rnn
-from customdata import CustomData
+from inference.evaluate_vae import evaluate_vae
+from tools.customdata import CustomData
 
 #%%
 import argparse
@@ -44,9 +44,10 @@ chosen_wdropout_params = [0, 0.5, 1]
 chosen_mu_force_beta_params = [0, 2, 3, 5, 10]
 chosen_freebits_params = [-1]
 
+
 config = Config(
     run_label=ARGS.run_label or '',
-    batch_size=16,
+    batch_size=64,
     vae_latent_size=16,
     embedding_size=256,
     rnn_hidden_size=256,
@@ -60,7 +61,7 @@ config = Config(
     freebits_param=ARGS.freebits or [-1, 0.25, 0.5, 1, 2, 8],
     will_train_rnn=False,
     will_train_vae=True,
-    nr_epochs=ARGS.nr_epochs or 5,
+    nr_epochs=ARGS.nr_epochs or 20,
     results_path = 'results',
     train_path = '/data/02-21.10way.clean',
     valid_path = '/data/22.auto.clean',
@@ -70,15 +71,13 @@ config = Config(
 
 cd = CustomData(config)
 test_loader = cd.get_data_loader(type='test', shuffle=False)
-
-loss_fn = make_elbo_criterion(config.vocab_size, -1, 0)
-
 # %%
 best_saved_models = [
-    'vae_best_mu5_wd1.0_fb-1.0.pt',
-    'vae_best_mu0_wd1.0_fb0.25.pt',
-    'vae_best_mu3_wd1.0_fb0.25.pt',
-    'vae_best_mu5_wd1.0_fb-1.pt',
+    'vae_best_mu5_wd1_fb-1.pt',
+    'vae_best_mu0_wd1_fb-1.pt',
+    'vae_best_mu0_wd1_fb0.pt',
+    'vae_best_mu3_wd1_fb0.25.pt',
+    # 'vae_best_mu5_wd1.0_fb0.pt',
 ]
 
 for model_path in best_saved_models:
@@ -92,16 +91,28 @@ for model_path in best_saved_models:
             embedding_size=config.embedding_size
         ).to(config.device)
 
+        loss_fn = make_elbo_criterion(config.vocab_size, config.vae_latent_size, -1, 0)
+
+
         prior = torch.distributions.Normal(
             torch.zeros(model.latent_size),
             torch.ones(model.latent_size)
         )
 
-        path_to_model = f'models/saved_models/{model_path}'
+        path_to_model = f'results/saved_models/{model_path}'
         model, _, _ = utils.load_model(path_to_model, model, config.device)
         model = model.to(config.device)
         vae_results_writer: SummaryWriter = SummaryWriter(comment=f"EVAL_{config.run_label}--{model_path}")
-        test_total_loss, test_total_kl_loss, test_total_nlll, test_perp, test_total_mu_loss = evaluate_VAE(model, test_loader, -1, config.device, loss_fn, 0, prior, vae_results_writer, 'test')
+        (test_total_loss, test_total_kl_loss, test_total_nlll, test_total_mu_loss), test_perp = evaluate_vae(
+            model,
+            test_loader,
+            -1,
+            config.device,
+            loss_fn,
+            0,
+            vae_results_writer,
+            'test'
+        )
 
         print(f'For model {model_path}: \n')
         print(f'Test Results || Elbo loss: {test_total_loss} || KL loss: {test_total_kl_loss} || NLLL {test_total_nlll} || Perp: {test_perp} ||MU loss {test_total_mu_loss}')

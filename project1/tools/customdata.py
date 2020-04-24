@@ -4,7 +4,7 @@ from nltk import Tree
 from nltk.treeprettyprinter import TreePrettyPrinter
 from config import Config
 
-from tokenizers import WordTokenizer
+from .tokenizers import WordTokenizer
 
 import torch
 from torch.utils.data import DataLoader

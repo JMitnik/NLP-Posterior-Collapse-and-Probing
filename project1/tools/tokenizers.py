@@ -33,12 +33,12 @@ class WordTokenizer:
         """
         Turn a sentence into a list of tokens. if add_special_tokens is True,
         add a start and stop token.
-        
+
         Args:
             x (str): sentence to tokenize.
-            add_special_tokens (bool, optional): if True, add a bos and eos token. 
+            add_special_tokens (bool, optional): if True, add a bos and eos token.
                 Defaults to True.
-        
+
         Returns:
             list: list of integers.
         """
@@ -51,12 +51,12 @@ class WordTokenizer:
         """
         Turn a list or torch.Tensor back into a sentence.
         If skip_special_tokens is True, all tokens in self.remove_in_decode are removed.
-        
+
         Args:
             x (Iterable): Iterable or torch.Tensor of tokens.
-            skip_special_tokens (bool, optional): Remove special tokens (leave [UNK]). 
+            skip_special_tokens (bool, optional): Remove special tokens (leave [UNK]).
                 Defaults to True.
-        
+
         Returns:
             str: decoded sentence.
         """
@@ -72,12 +72,12 @@ class WordTokenizer:
         Train this tokenizer on a list of sentences.
         Method, split sentences, aggragate word counts, make a word to index (w2i)
         and index to word (i2w) dictionary from the max_vocab_size most common words.
-        
+
         Args:
             data (Iterable): Iterable of strings, where each string is a sentence.
-            max_vocab_size (int, optional): If defined, only keep the max_vocab_size most common words in the vocabulary. 
+            max_vocab_size (int, optional): If defined, only keep the max_vocab_size most common words in the vocabulary.
                 Defaults to None.
-        
+
         Returns:
             tuple: w2i, i2w dicts
         """
@@ -97,7 +97,7 @@ class WordTokenizer:
         if max_vocab_size:
             words = [w[0] for w in word_counts.most_common(max_vocab_size - len(self.special_tokens))]
         else:
-            words = list(word_counts.keys())    
+            words = list(word_counts.keys())
         for word in sorted(words):
             i2w[w2i[word]] = word
 

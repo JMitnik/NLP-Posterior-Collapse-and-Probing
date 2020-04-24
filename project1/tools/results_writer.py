@@ -11,7 +11,6 @@ class ResultsWriter:
 
     # Tensorboard writer
     run_dir: str = field(default_factory=lambda: utils.generate_run_name())
-    tensorboard_writer: SummaryWriter = field(default_factory=lambda: SummaryWriter(run_dir=run_dir, comment=label))
 
     # Dataframes to store the results
     df_train_batch_results: pd.DataFrame = field(default_factory=lambda: pd.DataFrame())
@@ -19,6 +18,9 @@ class ResultsWriter:
 
     # Dataframes to store validation results
     df_valid_results: pd.DataFrame = field(default_factory=lambda: pd.DataFrame())
+
+    def __post_init__(self):
+        self.tensorboard_writer = SummaryWriter(log_dir=self.run_dir, comment=self.label)
 
     def add_train_batch_results(self, train_results_dict):
         """
@@ -35,10 +37,10 @@ class ResultsWriter:
         Writes to tensorboard based on results-dict, given properties such as loss or metric in key
         """
         model_name = results_dict['model_name']
-        it = results_dict['it']
+        it = results_dict['iteration']
 
         for key, value in results_dict.items():
-            if 'loss' or 'metric' in key:
+            if 'loss' in key or 'metric' in key:
                 try:
                     self.tensorboard_writer.add_scalar(f'{mode}-{model_name}/{key}', value, it)
                 except Exception as e:

@@ -45,8 +45,6 @@ def evaluate_vae(
             )
 
             # Calc perplexity
-            perp = calc_batch_perplexity(loss, sent_lengths)
-
             # Take mean of mini-batch loss
             loss = loss.mean()
             kl_loss = kl_loss.mean()
@@ -59,6 +57,8 @@ def evaluate_vae(
             mu_force_loss = torch.max(torch.tensor([0.0]), mu_force_beta_param - mu_force_loss_var).to(device)
 
             loss = loss + mu_force_loss
+
+            perp = calc_batch_perplexity(loss.item(), sent_lengths)
 
             total_loss += loss.item()
             total_kl_loss += kl_loss.item()

@@ -154,7 +154,7 @@ def train_batch_vae(model, optimizer, criterion, train_batch, device, mu_force_b
     writer.tensorboard_writer.add_histogram('train-vae/mu', flattened_posterior, it)
 
     # Now calc loss
-    mu_force_loss = calc_mu_loss(posterior, train_batch.shape[0]).to(device)
+    mu_force_loss = calc_mu_loss(posterior, train_batch.shape[0], mu_force_beta_param).to(device)
     loss = loss + mu_force_loss
 
     # Backprop and gradient descent
