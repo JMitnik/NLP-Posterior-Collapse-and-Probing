@@ -10,6 +10,6 @@ def make_rnnlm(config, trained=False, model_path=None):
     ).to(config.device)
 
     if trained and model_path is not None:
-        rnn_lm = utils.load_model(model_path, rnn_lm, config.device)
+        rnn_lm, _, _ = utils.load_model(model_path, rnn_lm, config.device)
 
     return rnn_lm
