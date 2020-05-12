@@ -308,14 +308,6 @@ test_x, test_y, _ = create_data(
     pos_vocab=train_vocab
 )
 
-# %%
-# 🏁
-# Investigating the training / dev / test datasets
-reshaped_train_X = train_x.reshape(nr_dataitems, total_seqlength, feature_size)
-reshaped_train_X = reshaped_train_X.reshape(nr_dataitems * total_seqlength, feature_size)
-reshaped_train_y = train_y.reshape(nr_dataitems, -1)
-reshaped_train_y = reshaped_train_y.reshape(-1)
-
 # %% [markdown]
 # # Diagnostic Classification
 #
@@ -351,9 +343,6 @@ class SimpleProbe(nn.Module):
 
 
 # %%
-len(train_vocab)
-
-# %%
 # DIAGNOSTIC CLASSIFIER
 # 🏁
 
@@ -381,9 +370,10 @@ probe = SimpleProbe(
 )
 
 # Have a trainer
+# TODO: Add a train/validation split
 net = NeuralNetClassifier(
     probe,
-    max_epochs=10,
+    max_epochs=20,
     batch_size=8,
     train_split=None,
 )
@@ -508,7 +498,6 @@ distances = create_gold_distances(sample_corpus)
 from scipy.sparse.csgraph import minimum_spanning_tree
 import torch
 
-
 def create_mst(distances):
     distances = torch.triu(distances).detach().numpy()
 
@@ -537,8 +526,9 @@ print(mst)
 
 # %%
 # Utility cell to play around with the values
-list(zip(mst.nonzero()[0], mst.nonzero()[1]))
-# mst.nonzero()[0]
+all_edges = list(zip(mst.nonzero()[0], mst.nonzero()[1]))
+all_edges = set(tuple(frozenset(sub)) for sub in set(all_edges)) 
+all_edges
 
 # %% [markdown]
 # Now that we are able to map edge distances back to parse trees, we can create code for our quantitative evaluation. For this we will use the Undirected Unlabeled Attachment Score (UUAS), which is expressed as:
@@ -550,22 +540,56 @@ list(zip(mst.nonzero()[0], mst.nonzero()[1]))
 # You will write code that computes the UUAS score for a matrix of predicted distances, and the corresponding gold distances. I recommend you to split this up into 2 methods: 1 that retrieves the edges that are present in an MST matrix, and one general method that computes the UUAS score.
 
 # %%
-def edges(mst):
-    edges = set()
-    # 🏁
-    # Your code for retrieving the edges from the MST matrix
+# 🏁
+# Utility function: check if edge is in set of edges
+check_edge_in_edgeset = lambda edge, edgeset: (edge[0], edge[1]) in edgeset or (edge[1], edge[0]) in edgeset
 
-    return edges
+def edges(mst):
+    """
+    Get all edges from a minimum spanning tree `mst`
+    """
+
+    all_edges = list(zip(mst.nonzero()[0], mst.nonzero()[1]))
+    
+    # Ensure (A, B) and (B, A) only return one combination
+    all_edges = set(tuple(frozenset(sub)) for sub in set(all_edges)) 
+
+    return all_edges
 
 def calc_uuas(pred_distances, gold_distances):
     uuas = None
-    # 🏁
-
-    # Your code for computing the UUAS score
-
+    
+    # Get MSTs from distances     
+    pred_mst = create_mst(pred_distances)
+    gold_mst = create_mst(gold_distances)
+    
+    # Convert MSTs to edges
+    pred_edges = edges(pred_mst)
+    gold_edges = edges(gold_mst)
+    
+    # Calculate UUAS
+    nr_correct_edges =len(
+        [pred_edge for pred_edge in pred_edges 
+         if check_edge_in_edgeset(pred_edge, gold_edges)]
+    )
+    
+    uuas = nr_correct_edges / len(gold_edges)
+    
     return uuas
 
+calc_uuas(sample_di, gold_distance)
 
+# %%
+gold_distance
+
+# %%
+# Sample of playing around
+gold_edges = edges(create_mst(gold_distance))
+sample_distance = gold_distance.clone()
+sample_distance[0, 1] = 10
+sample_pred_edges = edges(create_mst(sample_distance))
+
+len([pred_edge for pred_edge in sample_pred_edges if check_edge_in_edgeset(pred_edge, gold_edges)])
 
 # %% [markdown]
 # # Structural Probes
