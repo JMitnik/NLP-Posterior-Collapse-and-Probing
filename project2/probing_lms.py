@@ -572,24 +572,12 @@ def calc_uuas(pred_distances, gold_distances):
         [pred_edge for pred_edge in pred_edges 
          if check_edge_in_edgeset(pred_edge, gold_edges)]
     )
-    
+
     uuas = nr_correct_edges / len(gold_edges)
     
     return uuas
 
-calc_uuas(sample_di, gold_distance)
-
-# %%
-gold_distance
-
-# %%
-# Sample of playing around
-gold_edges = edges(create_mst(gold_distance))
-sample_distance = gold_distance.clone()
-sample_distance[0, 1] = 10
-sample_pred_edges = edges(create_mst(sample_distance))
-
-len([pred_edge for pred_edge in sample_pred_edges if check_edge_in_edgeset(pred_edge, gold_edges)])
+calc_uuas(gold_distance, gold_distance)
 
 # %% [markdown]
 # # Structural Probes
