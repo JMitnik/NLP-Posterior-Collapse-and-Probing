@@ -146,48 +146,64 @@ from typing import List
 from torch.nn.utils.rnn import pad_sequence
 from torch import Tensor
 
-def fetch_sen_repr_lstm(corpus: List[TokenList], lstm, tokenizer) -> Tensor:
-    # TODO: Needs to be fixed similarily to transformer
-    result = []
-
+# 🏁
+### LSTM FETCH SEN REPR
+def fetch_sen_repr_lstm(corpus: List[TokenList], lstm, tokenizer) -> List[Tensor]:
+    # TODO: vocab returns the 0 token for the word "She", and now we pad with 0's. We may want to add 1 for every token so these don't overlap
+    sentences_tokenized = []
+    lstm.eval()
     for sent in corpus:
-        tokenized = torch.tensor([tokenizer[word] for word in get_tokens_from_sent(corpus)])
-        result = result.append(tokenized)
+        tokenized  = torch.tensor([tokenizer[word] for word in get_tokens_from_sent(sent)])
+        sentences_tokenized.append(tokenized)
 
-    result = pad_sequence(result)
-
-    # Get state activation
+    representations = []
     with torch.no_grad():
-        hidden = lstm.init_hidden(1)
-        output = lstm(sample_tensor.unsqueeze(0), hidden).squeeze()
+        hidden = lstm.init_hidden(1) # outputs an initial hidden state of zeros
+        for sent in sentences_tokenized:
+            output = lstm(sent.unsqueeze(0), hidden).squeeze() # Get state activation
+            representations.append(output)
 
-    return output
-
+    return representations
+### Transformer FETCH SEN REPR
 def fetch_sen_repr_transformer(corpus: List[TokenList], model, tokenizer) -> Tensor:
+    
+    model.eval() # set model in eval mode
     corpus_result = []
 
     for sent in corpus:
-        # Running and debugging the transformer
-        tokenized: List[Tensor] = [torch.tensor(tokenizer.encode(word)) for word in get_tokens_from_sent(sent)]
+        add_space = False
+        tokenized: List[Tensor] = []
+        for i, w in enumerate(get_tokens_from_sent(sent)):
+            if add_space == False:
+                tokenized.append(torch.tensor(tokenizer.encode(w)))
+            else:
+                tokenized.append(torch.tensor(tokenizer.encode(" " + w)))
+
+            if sent[i]['misc'] == None:
+                add_space = True
+            else:
+                add_space = False
+                
+        # get the amount of tokens per word
         subwords_per_token: List[int] = [len(token_list) for (token_list) in tokenized]
 
         # Concatenate the subwords and feed to model
         with torch.no_grad():
             inp = torch.cat(tokenized)
-            model.eval()
             out = model(inp)
 
-        # Study the first output (last_hidden_state = nr_words x representation)
         h_states = out[0]
 
         # Form output per token by averaging over all subwords
-        starting_idx = 0
         result = []
+        current_idx = 0
         for nr_tokens in subwords_per_token:
-            subwords_per_token_tensor = h_states[starting_idx:starting_idx+nr_tokens, :]
-            token_tensor = subwords_per_token_tensor.mean(0)
+            subword_range = (current_idx, current_idx + nr_tokens)
+            current_idx += nr_tokens
+            word_hidden_states = h_states[subword_range[0]:subword_range[1], :]
+            token_tensor = word_hidden_states.mean(0)
+
             result.append(token_tensor)
-            starting_idx += nr_tokens
 
         output_tokens = torch.stack(result)
 
@@ -196,16 +212,13 @@ def fetch_sen_repr_transformer(corpus: List[TokenList], model, tokenizer) -> Ten
 
         corpus_result.append(output_tokens)
 
-    # TODO: Do we pad sequence or something else?
-#     return pad_sequence(corpus_result)
-    return pad_sequence(corpus_result)
+    return corpus_result
 
 
 # %%
 # FETCH SENTENCE REPRESENTATIONS
 from torch import Tensor
 import pickle
-
 
 # Should return a tensor of shape (num_tokens_in_corpus, representation_size)
 # Make sure you correctly average the subword representations that belong to 1 token!
@@ -218,31 +231,24 @@ def fetch_sen_reps(ud_parses: List[TokenList], model, tokenizer, concat=False) -
 
 # I provide the following sanity check, that compares your representations against a pickled version of mine.
 # Note that I use the DistilGPT-2 LM here. For the LSTM I used 0-valued initial states.
-def assert_sen_reps(model, tokenizer, lstm, vocab):
-    with open('distilgpt2_emb1.pickle', 'rb') as f:
-        distilgpt2_emb1 = pickle.load(f)
-
+def assert_sen_reps(transformer_model, transformer_tokenizer, lstm_model, lstm_tokenizer):
     with open('lstm_emb1.pickle', 'rb') as f:
-        lstm_emb1 = pickle.load(f)
+        lstm_emb1: torch.Tensor = pickle.load(f)
+    with open('distilgpt2_emb1.pickle', 'rb') as f:
+        distilgpt2_emb1: torch.Tensor = pickle.load(f)
 
-    corpus = parse_corpus('data/sample/en_ewt-ud-train.conllu')[:1]
+    corpus = parse_corpus('data/sample/en_ewt-ud-train.conllu')
 
-    own_distilgpt2_emb1 = fetch_sen_reps(corpus, model, tokenizer)
-    own_lstm_emb1 = fetch_sen_reps(corpus, lstm, vocab)
+    own_gpt2_emb1: torch.Tensor = fetch_sen_reps(corpus, transformer_model, transformer_tokenizer)[0]
+    own_lstm_emb1: torch.Tensor = fetch_sen_reps(corpus, lstm_model, lstm_tokenizer)[0]
 
-    assert distilgpt2_emb1.shape == own_distilgpt2_emb1.shape
-    assert lstm_emb1.shape == own_lstm_emb1.shape
+    assert distilgpt2_emb1.shape == own_gpt2_emb1.shape, "GPT2 Shapes don't match!"
+    assert lstm_emb1.shape == own_lstm_emb1.shape, "LSTM Shapes don't match!"
 
-    # DEBUGGIN TOOLS
-#     print(torch.max(torch.abs(distilgpt2_emb1 - own_distilgpt2_emb1)))
+    assert torch.allclose(distilgpt2_emb1, own_gpt2_emb1, atol=1e-04), "GPT2 Embeddings don't match!"
+    assert torch.allclose(lstm_emb1, own_lstm_emb1, atol=1e-04), "LSTM Embeddings don't match!"
 
-# TODO: These numbers need to match, but from index 3 (': token'), they start to diverge.
-#     print(distilgpt2_emb1[:, 0])
-#     print(own_distilgpt2_emb1[:, 0])
-
-    assert torch.allclose(distilgpt2_emb1, own_distilgpt2_emb1), "DistilGPT-2 embs don't match!"
-    assert torch.allclose(lstm_emb1, own_lstm_emb1), "LSTM embs don't match!"
-
+assert_sen_reps(model, tokenizer, lstm, vocab)
 
 # %%
 # 🏁
