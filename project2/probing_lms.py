@@ -272,7 +272,8 @@ def fetch_pos_tags(ud_parses: List[TokenList], pos_vocab=None) -> Tensor:
         pos_tokens = torch.tensor([pos_vocab[pos] for pos in get_pos_from_sent(sent)])
         pos_tokens_result.append(pos_tokens)
 
-    return pad_sequence(pos_tokens_result), pos_vocab
+    # return pad_sequence(pos_tokens_result), pos_vocab
+    return pos_tokens_result, pos_vocab
 
 
 # %%
