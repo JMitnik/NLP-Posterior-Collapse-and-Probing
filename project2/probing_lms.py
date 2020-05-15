@@ -32,7 +32,9 @@
 # %%
 # Custom Configuration
 from config import Config
-config = Config()
+config = Config(
+    will_train_simple_probe=False
+)
 
 # %%
 #
@@ -195,6 +197,7 @@ def fetch_sen_repr_transformer(corpus: List[TokenList], model, tokenizer) -> Ten
         corpus_result.append(output_tokens)
 
     # TODO: Do we pad sequence or something else?
+#     return pad_sequence(corpus_result)
     return pad_sequence(corpus_result)
 
 
@@ -207,7 +210,7 @@ import pickle
 # Should return a tensor of shape (num_tokens_in_corpus, representation_size)
 # Make sure you correctly average the subword representations that belong to 1 token!
 
-def fetch_sen_reps(ud_parses: List[TokenList], model, tokenizer) -> Tensor:
+def fetch_sen_reps(ud_parses: List[TokenList], model, tokenizer, concat=False) -> Tensor:
     if 'RNN' in str(model):
         return fetch_sen_repr_lstm(ud_parses, model, tokenizer)
 
@@ -378,8 +381,9 @@ net = NeuralNetClassifier(
     train_split=None,
 )
 
-# Train the network using Skorch's fit
-net.fit(reshaped_train_X, reshaped_train_y)
+if config.will_train_simple_probe:
+    # Train the network using Skorch's fit
+    net.fit(reshaped_train_X, reshaped_train_y)
 
 
 # %% [markdown]
@@ -527,7 +531,7 @@ print(mst)
 # %%
 # Utility cell to play around with the values
 all_edges = list(zip(mst.nonzero()[0], mst.nonzero()[1]))
-all_edges = set(tuple(frozenset(sub)) for sub in set(all_edges)) 
+all_edges = set(tuple(frozenset(sub)) for sub in set(all_edges))
 all_edges
 
 # %% [markdown]
@@ -550,31 +554,31 @@ def edges(mst):
     """
 
     all_edges = list(zip(mst.nonzero()[0], mst.nonzero()[1]))
-    
+
     # Ensure (A, B) and (B, A) only return one combination
-    all_edges = set(tuple(frozenset(sub)) for sub in set(all_edges)) 
+    all_edges = set(tuple(frozenset(sub)) for sub in set(all_edges))
 
     return all_edges
 
 def calc_uuas(pred_distances, gold_distances):
     uuas = None
-    
-    # Get MSTs from distances     
+
+    # Get MSTs from distances
     pred_mst = create_mst(pred_distances)
     gold_mst = create_mst(gold_distances)
-    
+
     # Convert MSTs to edges
     pred_edges = edges(pred_mst)
     gold_edges = edges(gold_mst)
-    
+
     # Calculate UUAS
     nr_correct_edges =len(
-        [pred_edge for pred_edge in pred_edges 
+        [pred_edge for pred_edge in pred_edges
          if check_edge_in_edgeset(pred_edge, gold_edges)]
     )
 
     uuas = nr_correct_edges / len(gold_edges)
-    
+
     return uuas
 
 calc_uuas(gold_distance, gold_distance)
@@ -670,25 +674,28 @@ class L1DistanceLoss(nn.Module):
 
 
 
-# %% [markdown]
+# %% [raw]
 # I have provided a rough outline for the training regime that you can use. Note that the hyper parameters that I provide here only serve as an indication, but should be (briefly) explored by yourself.
 #
 # As can be seen in Hewitt's code above, there exists functionality in the probe to deal with batched input. It is up to you to use that: a (less efficient) method can still incorporate batches by doing multiple forward passes for a batch and computing the backward pass only once for the summed losses of all these forward passes. (_I know, this is not the way to go, but in the interest of time that is allowed ;-), the purpose of the assignment is writing a good paper after all_).
 
 # %%
-from torch import optim
+# 🏁
+from torch.utils.data import Dataset, DataLoader
 
-'''
-Similar to the `create_data` method of the previous notebook, I recommend you to use a method
-that initialises all the data of a corpus. Note that for your embeddings you can use the
-`fetch_sen_reps` method again. However, for the POS probe you concatenated all these representations into
-1 big tensor of shape (num_tokens_in_corpus, model_dim).
+class ProbingDataset(Dataset):
+    def __init__(self, features, targets):
+        self.features = features
+        self.targets = targets
 
-The StructuralProbe expects its input to contain all the representations of 1 sentence, so I recommend you
-to update your `fetch_sen_reps` method in a way that it is easy to retrieve all the representations that
-correspond to a single sentence.
-'''
+    def __len__(self):
+        return len(self.targets)
 
+    def __getitem__(self, idx):
+        return (self.features[idx], self.targets[idx])
+
+
+# %%
 def init_corpus(path, concat=False, cutoff=None):
     """ Initialises the data of a corpus.
 
@@ -705,12 +712,51 @@ def init_corpus(path, concat=False, cutoff=None):
         memory usage.
     """
     corpus = parse_corpus(path)[:cutoff]
+    corpus_size = len(corpus)
 
     embs = fetch_sen_reps(corpus, model, tokenizer, concat=concat)
+#     max_length_size = embs.shape[0]
+
+#     embs = embs.reshape(corpus_size, max_length_size, -1)
     gold_distances = create_gold_distances(corpus)
 
     return gold_distances, embs
 
+
+
+# %%
+distances, embs = init_corpus('data/sample/en_ewt-ud-train.conllu')
+embs = embs.reshape(embs.shape[1], embs.shape[0], -1)
+data = ProbingDataset(embs, distances)
+
+
+# %%
+def custom_collate_fn(items):
+    result = []
+    for batch_item in items:
+        embs = batch_item[0]
+        raw_label = batch_item[1]
+        length = torch.tensor([raw_label.shape[0]])
+        label_placeholder = torch.full((embs.shape[0], embs.shape[0]), -1)
+        label_placeholder[0: raw_label.shape[0], 0: raw_label.shape[1]] = raw_label
+        result.append((embs, label_placeholder, length))
+    return result
+
+train_data_loader = DataLoader(data, collate_fn=custom_collate_fn, batch_size=4)
+
+# %%
+from torch import optim
+
+'''
+Similar to the `create_data` method of the previous notebook, I recommend you to use a method
+that initialises all the data of a corpus. Note that for your embeddings you can use the
+`fetch_sen_reps` method again. However, for the POS probe you concatenated all these representations into
+1 big tensor of shape (num_tokens_in_corpus, model_dim).
+
+The StructuralProbe expects its input to contain all the representations of 1 sentence, so I recommend you
+to update your `fetch_sen_reps` method in a way that it is easy to retrieve all the representations that
+correspond to a single sentence.
+'''
 
 # I recommend you to write a method that can evaluate the UUAS & loss score for the dev (& test) corpus.
 # Feel free to alter the signature of this method.
@@ -719,13 +765,16 @@ def evaluate_probe(probe, _data):
 
     return loss_score, uuas_score
 
-
 # Feel free to alter the signature of this method.
-def train(_data):
+def train(
+    train_data_loader,
+    config=None
+):
     emb_dim = 768
     rank = 64
     lr = 10e-4
     batch_size = 24
+    epochs = 5
 
     probe = StructuralProbe(emb_dim, rank)
     optimizer = optim.Adam(probe.parameters(), lr=lr)
@@ -733,18 +782,29 @@ def train(_data):
     loss_function =  L1DistanceLoss()
 
     for epoch in range(epochs):
-
-        for i in range(0, len(corpus), batch_size):
+        for train_batch in train_data_loader:
             optimizer.zero_grad()
 
-            # YOUR CODE FOR DOING A PROBE FORWARD PASS
+            batch_loss = torch.Tensor([0])
+            for train_item in train_batch:
+                train_X, train_y, length = train_item
+
+                if len(train_X.shape) == 2:
+                    train_X = train_X.unsqueeze(0)
+
+                pred_distances = probe(train_X)
+                item_loss, sents = loss_function(pred_distances, train_y, length)
+                batch_loss += item_loss
 
             batch_loss.backward()
             optimizer.step()
 
-        dev_loss, dev_uuas = evaluate_probe(probe, _dev_data)
+        # - [] Pass in _dev_data
+#         dev_loss, dev_uuas = evaluate_probe(probe, _dev_data)
 
         # Using a scheduler is up to you, and might require some hyper param fine-tuning
-        scheduler.step(dev_loss)
+#         scheduler.step(dev_loss)
 
-    test_loss, test_uuas = evaluate_probe(probe, _test_data)
+    return probe
+
+train(train_data_loader)
