@@ -142,7 +142,7 @@ get_ids_from_sent: List[str] = lambda sent: [word['id'] for word in sent]
 # %%
 # 🏁
 
-from typing import List
+from typing import List, DefaultDict
 from torch.nn.utils.rnn import pad_sequence
 from torch import Tensor
 
@@ -253,7 +253,7 @@ assert_sen_reps(model, tokenizer, lstm, vocab)
 # %%
 # 🏁
 
-def fetch_pos_tags(ud_parses: List[TokenList], pos_vocab=None) -> Tensor:
+def fetch_pos_tags(ud_parses: List[TokenList], pos_vocab=None) -> (List[Tensor], DefaultDict):
     """
     Converts `ud_parses` into a tensor of POS tags.
     """
