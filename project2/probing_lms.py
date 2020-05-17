@@ -295,12 +295,22 @@ def create_data(filename: str, lm, w2i: Dict[str, int], pos_vocab=None):
 
     return sen_reps, pos_tags, pos_vocab
 
+# %%
+# Create Corrupted Data
+def create_corrupted_data(filename: str, lm, w2i: Dict[str, int], pos_vocab=None):
+    ud_parses = parse_corpus(filename)
+    sen_reps = fetch_sen_reps(ud_parses, lm, w2i)
+    pos_tags, pos_vocab = fetch_pos_tags(ud_parses, pos_vocab=pos_vocab)
+
+    return sen_reps, pos_tags, pos_vocab
+    s
+# %%
 
 lm = model  # or `lstm`
 w2i = tokenizer  # or `vocab`
 use_sample = True
 
-train_X, train_y, train_vocab = create_data(
+train_data_X, train_data_y, train_vocab = create_data(
     os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-train.conllu'),
     lm,
     w2i
@@ -310,19 +320,19 @@ train_X, train_y, train_vocab = create_data(
 # print(len(train_vocab))
 # print(train_vocab)
 
-dev_x, dev_y, _ = create_data(
+valid_data_X, valid_data_y, _ = create_data(
     os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-dev.conllu'),
     lm,
     w2i,
     pos_vocab=train_vocab
 )
 
-# test_x, test_y, _ = create_data(
-#     os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-test.conllu'),
-#     lm,
-#     w2i,
-#     pos_vocab=train_vocab
-# )
+test_data_X, test_data_y, _ = create_data(
+    os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-test.conllu'),
+    lm,
+    w2i,
+    pos_vocab=train_vocab
+)
 
 # %%
 # Utility functions for transforming X and y to appropriate formats
@@ -392,25 +402,28 @@ probe: nn.Module = SimpleProbe(
     vocab_size
 )
 
-load_model = False
+start_from_previous_state = False
 
 train_acc = EpochScoring(scoring='accuracy', on_train=True, 
                          name='train_acc', lower_is_better=False)
 
-cp = Checkpoint(dirname=config.path_to_POS_Probe(1))
-train_end_cp = TrainEndCheckpoint(dirname=config.path_to_POS_Probe(1))
+# We make two checkpoints, on the best validation score and at the end of the training
+# Add prefix for end_of_training model
+cp = Checkpoint(dirname=config.path_to_POS_Probe('best')) 
+train_end_cp = TrainEndCheckpoint(dirname=config.path_to_POS_Probe('best'))
+# We can add the "LoadInitState" if we want to continue training of a model
 
-load_state = LoadInitState(cp)
+# callbacks = [train_acc, cp, train_end_cp]
 
-callbacks = [train_acc, cp, train_end_cp]
+callbacks = [train_acc]
 
-if load_model == True:
+if start_from_previous_state == True:
+    load_state = LoadInitState(cp)
     callbacks.append(load_state)
 
-
 # Concatenate all the tensors
-concat_X, concat_Y = transform_XY_to_concat_tensors(train_X, train_y)
-valid_X, valid_y = transform_XY_to_concat_tensors(dev_x, dev_y)
+train_X, train_y = transform_XY_to_concat_tensors(train_data_X, train_data_y)
+valid_X, valid_y = transform_XY_to_concat_tensors(valid_data_X, valid_data_y)
 valid_ds = Dataset(valid_X, valid_y)
 
 # Have a trainer
@@ -418,7 +431,7 @@ valid_ds = Dataset(valid_X, valid_y)
 net: NeuralNetClassifier = NeuralNetClassifier(
     probe,
     callbacks=callbacks,
-    max_epochs=10,
+    max_epochs=50,
     batch_size=8,
     lr=0.0001,
     train_split=predefined_split(valid_ds),
@@ -427,42 +440,93 @@ net: NeuralNetClassifier = NeuralNetClassifier(
 )
 
 
-
-if config.will_train_simple_probe:
-    # Train the network using Skorch's fit
-    # TODO: Test
+if config.will_train_simple_probe: # Train a new model with skorch's fit
     print('Traing POS probe')
-    net.fit(concat_X, concat_Y)
+    net.fit(train_X, train_y)
     print('Done Training Probe')
+
+# Load the best version of a model, either just trained or saved
+# net.initialize()
+# net.load_params(checkpoint=cp)
 
 # %%
 # A quick test to check the accuracy of the probe
 #concat_test_X, concat_test_Y = transform_XY_to_concat_tensors(test_x, test_y)
 import numpy as np
 
-predictions = net.predict(concat_X)
+test_X, test_y = transform_XY_to_concat_tensors(test_data_X, test_data_y)
 
-golden_tags = concat_Y
+predictions = net.predict(test_X)
 
+all_pred = 0
+correct_pred = 0
 
-for i in range(10):
-    print(f'Pred {predictions[i]} | {concat_Y[i]} Gold')
-    # print(train_y_probs[i])
-    # print(train_y_probs[i].sum())
-    # print(np.argmax(train_y_probs[i]))
-    # print(all_predictions[i])
-# print(golden_tags.shape)
-# print(type(train_y_probs))
+# Get the test accuracy
+for target, prediction in zip(test_y, predictions):
+    all_pred += 1
+    if target.item() == prediction:
+        correct_pred += 1
+    
+print(f'Test Accuracy: {(correct_pred/all_pred):.4f}')
 
-# print(train_y_probs.shape)
-# print(train_y_probs[0].shape)
-# print(train_y_probs[0])
-# print(train_y_probs[0].sum())
-# print(train_y_probs[0].max())
-# print(np.argmax(train_y_probs[0]))
-# print(train_vocab)
-# print(8 in train_vocab)
+# %% [markdown]
+# Start Control Task
+from torch.distributions import Categorical
 
+print(train_X.shape)
+print(train_X[0].shape)
+print('-'*10)
+print(train_y.shape)
+print(train_y[0].shape)
+print(train_y[0].item())
+print('-'*10)
+print(len(train_vocab))
+print(train_vocab)
+print('-'*10)
+print(train_y.max())
+print(train_y.min())
+print('-'*10)
+possible_targets = list(set([float(value) for (_, value) in train_vocab.items()]))
+print(possible_targets)
+possible_targets_distr = Categorical(torch.tensor(possible_targets))
+print('-'*10)
+
+# %% Create corrupted vocab
+
+corrupted_train_y = [possible_targets_distr.sample() for _ in train_y]
+print(type(corrupted_train_y[0]))
+corrupted_train_y = torch.stack(corrupted_train_y, dim=0)
+print(corrupted_train_y.shape)
+
+# %% Train a corrupted prob classifier
+
+callbacks = [train_acc]
+
+corrupted_net: NeuralNetClassifier = NeuralNetClassifier(
+    probe,
+    callbacks=callbacks,
+    max_epochs=50,
+    batch_size=8,
+    lr=0.0001,
+    train_split=predefined_split(valid_ds),
+    iterator_train__shuffle=True,
+    optimizer= torch.optim.Adam,
+)
+
+corrupted_net.fit(train_X, corrupted_train_y)
+
+corrupted_predictions = corrupted_net.predict(test_X)
+
+all_pred = 0
+correct_pred = 0
+# %%
+# Get the test accuracy
+for target, prediction in zip(test_y, corrupted_predictions):
+    all_pred += 1
+    if target.item() == prediction:
+        correct_pred += 1
+
+print(f'Corrupted Test Accuracy: {(correct_pred/all_pred):.4f}')
 
 # %% [markdown]
 # # Trees
