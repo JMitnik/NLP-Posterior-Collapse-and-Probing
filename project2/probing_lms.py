@@ -35,7 +35,8 @@ from config import Config
 
 config: Config = Config(
     will_train_simple_probe=False,
-    struct_probe_train_epoch=20
+    struct_probe_train_epoch=100,
+    struct_probe_lr=0.001
 )
 # %%
 #
@@ -688,7 +689,7 @@ class L1DistanceLoss(nn.Module):
 
 
 
-# %% [raw]
+# %% [markdown]
 # I have provided a rough outline for the training regime that you can use. Note that the hyper parameters that I provide here only serve as an indication, but should be (briefly) explored by yourself.
 #
 # As can be seen in Hewitt's code above, there exists functionality in the probe to deal with batched input. It is up to you to use that: a (less efficient) method can still incorporate batches by doing multiple forward passes for a batch and computing the backward pass only once for the summed losses of all these forward passes. (_I know, this is not the way to go, but in the interest of time that is allowed ;-), the purpose of the assignment is writing a good paper after all_).
@@ -755,19 +756,6 @@ valid_dataloader = init_dataloader_sequential('data/sample/en_ewt-ud-dev.conllu'
 
 # %%
 from torch import optim
-
-'''
-Similar to the `create_data` method of the previous notebook, I recommend you to use a method
-that initialises all the data of a corpus. Note that for your embeddings you can use the
-`fetch_sen_reps` method again. However, for the POS probe you concatenated all these representations into
-1 big tensor of shape (num_tokens_in_corpus, model_dim).
-
-The StructuralProbe expects its input to contain all the representations of 1 sentence, so I recommend you
-to update your `fetch_sen_reps` method in a way that it is easy to retrieve all the representations that
-correspond to a single sentence.
-'''
-
-# I recommend you to write a method that can evaluate the UUAS & loss score for the dev (& test) corpus.
 def evaluate_probe(probe, data_loader):
     loss_scores: List[Tensor] = []
     uuas_scores: List[Tensor] = []
@@ -787,6 +775,7 @@ def evaluate_probe(probe, data_loader):
 
                 # Sentences with strange tokens, we ignore for the moment
                 if len(y) < 2:
+                    print(f"Encountered: null sentence at idx {idx}")
                     continue
 
                 pred_distances = probe(X)
@@ -822,7 +811,7 @@ def train(
 
     # Training tools
     optimizer = optim.Adam(probe.parameters(), lr=lr)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5,patience=1)
+#     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5,patience=1)
     loss_function = L1DistanceLoss()
 
     for epoch in range(epochs):
@@ -853,7 +842,7 @@ def train(
         valid_loss, valid_uuas = evaluate_probe(probe, valid_dataloader)
 
         # TODO: Optional Param-tune scheduler (?)
-        scheduler.step(valid_loss)
+#         scheduler.step(valid_loss)
 
     return probe
 
