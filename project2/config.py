@@ -8,6 +8,9 @@ class Config:
     path_to_data_valid: str = 'data/sample/en_ewt-ud-dev.conllu'
     path_to_data_test: str = 'data/sample/en_ewt-ud-test.conllu'
 
+    # Saved Model Paths
+    path_to_POS_Probe: str = lambda version: 'saved_models/POS_Probe_' + str(version)
+
     # Booleans
     will_train_simple_probe: bool = True
     will_train_structural_probe: bool = True

@@ -34,10 +34,11 @@
 from config import Config
 
 config: Config = Config(
-    will_train_simple_probe=False,
+    will_train_simple_probe=True,
     struct_probe_train_epoch=100,
     struct_probe_lr=0.001
 )
+
 # %%
 #
 ## Your code for initializing the transformer model(s)
@@ -251,6 +252,8 @@ def assert_sen_reps(transformer_model, transformer_tokenizer, lstm_model, lstm_t
     assert torch.allclose(distilgpt2_emb1, own_gpt2_emb1, atol=1e-04), "GPT2 Embeddings don't match!"
     assert torch.allclose(lstm_emb1, own_lstm_emb1, atol=1e-04), "LSTM Embeddings don't match!"
 
+    print('Passed basic checks!')
+
 assert_sen_reps(model, tokenizer, lstm, vocab)
 
 # %%
@@ -268,7 +271,7 @@ def fetch_pos_tags(ud_parses: List[TokenList], pos_vocab: Optional[DefaultDict[s
         print(pos2i)
         pos_vocab = defaultdict(lambda: pos2i["<unk>"])
         pos_vocab.update(pos2i)
-
+        print(pos_vocab)
     pos_tokens_result: List[Tensor] = []
 
     sent: TokenList
@@ -302,6 +305,10 @@ train_X, train_y, train_vocab = create_data(
     lm,
     w2i
 )
+# print('\n\n')
+# print('Train Vocab')
+# print(len(train_vocab))
+# print(train_vocab)
 
 dev_x, dev_y, _ = create_data(
     os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-dev.conllu'),
@@ -310,12 +317,12 @@ dev_x, dev_y, _ = create_data(
     pos_vocab=train_vocab
 )
 
-test_x, test_y, _ = create_data(
-    os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-test.conllu'),
-    lm,
-    w2i,
-    pos_vocab=train_vocab
-)
+# test_x, test_y, _ = create_data(
+#     os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-test.conllu'),
+#     lm,
+#     w2i,
+#     pos_vocab=train_vocab
+# )
 
 # %%
 # Utility functions for transforming X and y to appropriate formats
@@ -348,7 +355,6 @@ def transform_XY_to_padded_tensors(X: List[Tensor], y: List[Tensor]) -> Tuple[Te
 import torch.nn as nn
 
 # 🏁
-
 class SimpleProbe(nn.Module):
     def __init__(
         self,
@@ -364,16 +370,21 @@ class SimpleProbe(nn.Module):
 
         return self.softmax(logits)
 
-
 # %%
 # DIAGNOSTIC CLASSIFIER
 # 🏁
 from skorch import NeuralNetClassifier
+from skorch.callbacks import EpochScoring, Checkpoint, TrainEndCheckpoint, LoadInitState
 from skorch.dataset import Dataset
+from skorch.helper import predefined_split
 
+# print('\n\n')
+# print('Train Vocab')
+# print(len(train_vocab))
+# print(train_vocab)
 # Fixed hidden_size
 hidden_size = 768
-vocab_size = 17
+vocab_size = len(train_vocab)#17
 
 # Probe
 probe: nn.Module = SimpleProbe(
@@ -381,22 +392,77 @@ probe: nn.Module = SimpleProbe(
     vocab_size
 )
 
+load_model = False
+
+train_acc = EpochScoring(scoring='accuracy', on_train=True, 
+                         name='train_acc', lower_is_better=False)
+
+cp = Checkpoint(dirname=config.path_to_POS_Probe(1))
+train_end_cp = TrainEndCheckpoint(dirname=config.path_to_POS_Probe(1))
+
+load_state = LoadInitState(cp)
+
+callbacks = [train_acc, cp, train_end_cp]
+
+if load_model == True:
+    callbacks.append(load_state)
+
+
+# Concatenate all the tensors
+concat_X, concat_Y = transform_XY_to_concat_tensors(train_X, train_y)
+valid_X, valid_y = transform_XY_to_concat_tensors(dev_x, dev_y)
+valid_ds = Dataset(valid_X, valid_y)
+
 # Have a trainer
 # TODO: Add a train/validation split
 net: NeuralNetClassifier = NeuralNetClassifier(
     probe,
-    max_epochs=20,
+    callbacks=callbacks,
+    max_epochs=10,
     batch_size=8,
-    train_split=None,
+    lr=0.0001,
+    train_split=predefined_split(valid_ds),
+    iterator_train__shuffle=True,
+    optimizer= torch.optim.Adam,
 )
 
-# Concatenate all the tensors
-concat_X, concat_Y = transform_XY_to_concat_tensors(train_X, train_y)
+
 
 if config.will_train_simple_probe:
     # Train the network using Skorch's fit
     # TODO: Test
+    print('Traing POS probe')
     net.fit(concat_X, concat_Y)
+    print('Done Training Probe')
+
+# %%
+# A quick test to check the accuracy of the probe
+#concat_test_X, concat_test_Y = transform_XY_to_concat_tensors(test_x, test_y)
+import numpy as np
+
+predictions = net.predict(concat_X)
+
+golden_tags = concat_Y
+
+
+for i in range(10):
+    print(f'Pred {predictions[i]} | {concat_Y[i]} Gold')
+    # print(train_y_probs[i])
+    # print(train_y_probs[i].sum())
+    # print(np.argmax(train_y_probs[i]))
+    # print(all_predictions[i])
+# print(golden_tags.shape)
+# print(type(train_y_probs))
+
+# print(train_y_probs.shape)
+# print(train_y_probs[0].shape)
+# print(train_y_probs[0])
+# print(train_y_probs[0].sum())
+# print(train_y_probs[0].max())
+# print(np.argmax(train_y_probs[0]))
+# print(train_vocab)
+# print(8 in train_vocab)
+
 
 # %% [markdown]
 # # Trees
