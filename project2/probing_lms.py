@@ -30,12 +30,12 @@
 # Their library is well documented, and they provide great tools to easily load in pre-trained models.
 
 # %%
-# Custom Configuration
+# Custom Configuration|
 from config import Config
-config = Config(
+
+config: Config = Config(
     will_train_simple_probe=False
 )
-
 # %%
 #
 ## Your code for initializing the transformer model(s)
@@ -93,7 +93,7 @@ vocab.update(w2i)
 # Make sure you accustom yourself to the format that is created by the `conllu` library that parses the treebank files before moving on. For example, make sure you understand how you can access the pos tag of a token, or how to cope with the tree structure that is formed using the `to_tree()` functionality.
 
 # %%
-from typing import List
+from typing import Callable, Dict, List, Optional, Union
 from conllu import parse_incr, TokenList
 
 def parse_corpus(filename: str) -> List[TokenList]:
@@ -116,10 +116,12 @@ sample_sent: TokenList = sample_corpus[0]
 
 # %%
 # 🏁
-# Utility functions
-get_pos_from_sent: List[str] = lambda sent: [word['upostag'] for word in sent]
-get_tokens_from_sent: List[str] = lambda sent: [word['form'] for word in sent]
-get_ids_from_sent: List[str] = lambda sent: [word['id'] for word in sent]
+# Utility functions for dealing with the conllu dataset
+from typing import Callable
+
+get_pos_from_sent: Callable[[TokenList], List[str]] = lambda sent: [word['upostag'] for word in sent]
+get_tokens_from_sent: Callable[[TokenList], List[str]] = lambda sent: [word['form'] for word in sent]
+get_ids_from_sent: Callable[[TokenList], List[str]] = lambda sent: [word['id'] for word in sent]
 
 # %% [markdown]
 # # Generating Representations
@@ -165,8 +167,7 @@ def fetch_sen_repr_lstm(corpus: List[TokenList], lstm, tokenizer) -> List[Tensor
 
     return representations
 ### Transformer FETCH SEN REPR
-def fetch_sen_repr_transformer(corpus: List[TokenList], model, tokenizer) -> Tensor:
-    
+def fetch_sen_repr_transformer(corpus: List[TokenList], model, tokenizer) -> List[Tensor]:
     model.eval() # set model in eval mode
     corpus_result = []
 
@@ -183,7 +184,7 @@ def fetch_sen_repr_transformer(corpus: List[TokenList], model, tokenizer) -> Ten
                 add_space = True
             else:
                 add_space = False
-                
+
         # get the amount of tokens per word
         subwords_per_token: List[int] = [len(token_list) for (token_list) in tokenized]
 
@@ -223,7 +224,7 @@ import pickle
 # Should return a tensor of shape (num_tokens_in_corpus, representation_size)
 # Make sure you correctly average the subword representations that belong to 1 token!
 
-def fetch_sen_reps(ud_parses: List[TokenList], model, tokenizer, concat=False) -> Tensor:
+def fetch_sen_reps(ud_parses: List[TokenList], model, tokenizer, concat=False) -> List[Tensor]:
     if 'RNN' in str(model):
         return fetch_sen_repr_lstm(ud_parses, model, tokenizer)
 
@@ -252,8 +253,9 @@ assert_sen_reps(model, tokenizer, lstm, vocab)
 
 # %%
 # 🏁
+from typing import Tuple
 
-def fetch_pos_tags(ud_parses: List[TokenList], pos_vocab=None) -> (List[Tensor], DefaultDict):
+def fetch_pos_tags(ud_parses: List[TokenList], pos_vocab: Optional[DefaultDict[str, int]] = None) -> Tuple[List[Tensor], DefaultDict]:
     """
     Converts `ud_parses` into a tensor of POS tags.
     """
@@ -272,7 +274,6 @@ def fetch_pos_tags(ud_parses: List[TokenList], pos_vocab=None) -> (List[Tensor],
         pos_tokens = torch.tensor([pos_vocab[pos] for pos in get_pos_from_sent(sent)])
         pos_tokens_result.append(pos_tokens)
 
-    # return pad_sequence(pos_tokens_result), pos_vocab
     return pos_tokens_result, pos_vocab
 
 
@@ -282,14 +283,10 @@ import os
 # Function that combines the previous functions, and creates 2 tensors for a .conllu file:
 # 1 containing the token representations, and 1 containing the (tokenized) pos_tags.
 
-def create_data(filename: str, lm, w2i, pos_vocab=None):
+def create_data(filename: str, lm, w2i: Dict[str, int], pos_vocab=None):
     ud_parses = parse_corpus(filename)
     sen_reps = fetch_sen_reps(ud_parses, lm, w2i)
     pos_tags, pos_vocab = fetch_pos_tags(ud_parses, pos_vocab=pos_vocab)
-
-    print(f"Shape of corpuses for filename {filename} is {sen_reps.shape}")
-    print(f"Number of corpuses for filename {filename} is {len(ud_parses)}")
-    print(f"Shape of pos_tags for filename {filename} is {pos_tags.shape}")
 
     return sen_reps, pos_tags, pos_vocab
 
@@ -298,7 +295,7 @@ lm = model  # or `lstm`
 w2i = tokenizer  # or `vocab`
 use_sample = True
 
-train_x, train_y, train_vocab = create_data(
+train_X, train_y, train_vocab = create_data(
     os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-train.conllu'),
     lm,
     w2i
@@ -317,6 +314,20 @@ test_x, test_y, _ = create_data(
     w2i,
     pos_vocab=train_vocab
 )
+
+# %%
+# Utility functions for transforming X and y to appropriate formats
+def transform_XY_to_concat_tensors(X: List[Tensor], y: List[Tensor]) -> Tuple[Tensor, Tensor]:
+    X_concat = torch.cat(X, dim=0)
+    y_concat = torch.cat(y, dim=0)
+
+    return X_concat, y_concat
+
+def transform_XY_to_padded_tensors(X: List[Tensor], y: List[Tensor]) -> Tuple[Tensor, Tensor]:
+    X_padded = pad_sequence(X)
+    y_padded = pad_sequence(y)
+
+    return X_padded, y_padded
 
 # %% [markdown]
 # # Diagnostic Classification
@@ -355,43 +366,35 @@ class SimpleProbe(nn.Module):
 # %%
 # DIAGNOSTIC CLASSIFIER
 # 🏁
-
 from skorch import NeuralNetClassifier
 from skorch.dataset import Dataset
-
-nr_dataitems = train_x.shape[1]
-total_seqlength = train_x.shape[0]
-feature_size = train_x.shape[2]
-
-# Shape the data such that each row is a single token
-reshaped_train_X = train_x.reshape(nr_dataitems, total_seqlength, feature_size)
-reshaped_train_X = reshaped_train_X.reshape(nr_dataitems * total_seqlength, feature_size)
-reshaped_train_y = train_y.reshape(nr_dataitems, -1)
-reshaped_train_y = reshaped_train_y.reshape(-1)
 
 # Fixed hidden_size
 hidden_size = 768
 vocab_size = 17
 
 # Probe
-probe = SimpleProbe(
+probe: nn.Module = SimpleProbe(
     hidden_size,
     vocab_size
 )
 
 # Have a trainer
 # TODO: Add a train/validation split
-net = NeuralNetClassifier(
+net: NeuralNetClassifier = NeuralNetClassifier(
     probe,
     max_epochs=20,
     batch_size=8,
     train_split=None,
 )
 
+# Concatenate all the tensors
+concat_X, concat_Y = transform_XY_to_concat_tensors(train_X, train_y)
+
 if config.will_train_simple_probe:
     # Train the network using Skorch's fit
-    net.fit(reshaped_train_X, reshaped_train_y)
-
+    # TODO: Test
+    net.fit(concat_X, concat_Y)
 
 # %% [markdown]
 # # Trees
@@ -467,8 +470,8 @@ print(ete3_tree)
 # Please fill in the gap in the following method. I recommend you to have a good look at Hewitt's blog post  about these node distances.
 
 # %%
-def create_gold_distances(corpus):
-    all_distances = []
+def create_gold_distances(corpus) -> List[Tensor]:
+    all_distances: List[Tensor] = []
 
     for sent in (corpus):
         tokentree = sent.to_tree()
@@ -612,7 +615,10 @@ class StructuralProbe(nn.Module):
         self.probe_rank = rank
         self.model_dim = model_dim
 
-        self.proj = nn.Parameter(data = torch.zeros(self.model_dim, self.probe_rank))
+        self.proj = nn.Parameter(
+            data = torch.zeros(self.model_dim, self.probe_rank),
+            requires_grad=True
+        )
 
         nn.init.uniform_(self.proj, -0.05, 0.05)
         self.to(device)
@@ -688,7 +694,7 @@ class L1DistanceLoss(nn.Module):
 
 # %%
 # 🏁
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader, Dataset
 
 class ProbingDataset(Dataset):
     def __init__(self, features, targets):
@@ -701,6 +707,8 @@ class ProbingDataset(Dataset):
     def __getitem__(self, idx):
         return (self.features[idx], self.targets[idx])
 
+def custom_collate_fn(items: List[Tensor]) -> List[Tensor]:
+    return items
 
 # %%
 def init_corpus(path, concat=False, cutoff=None):
@@ -718,10 +726,9 @@ def init_corpus(path, concat=False, cutoff=None):
         This allows only a subset to be used, alleviating
         memory usage.
     """
-    corpus = parse_corpus(path)[:cutoff]
-    corpus_size = len(corpus)
+    corpus: List[TokenList] = parse_corpus(path)[:cutoff]
 
-    embs = fetch_sen_reps(corpus, model, tokenizer, concat=concat)
+    embs: List[Tensor] = fetch_sen_reps(corpus, model, tokenizer, concat=concat)
 #     max_length_size = embs.shape[0]
 
 #     embs = embs.reshape(corpus_size, max_length_size, -1)
@@ -729,27 +736,21 @@ def init_corpus(path, concat=False, cutoff=None):
 
     return gold_distances, embs
 
+def init_dataloader_sequential(path: str, batch_size: int, cutoff=None) -> DataLoader:
+    y, X = init_corpus(path)
+    dataset = ProbingDataset(X, y)
+    data_loader = DataLoader(
+        dataset=dataset,
+        collate_fn=custom_collate_fn,
+        batch_size=batch_size
+    )
 
+    return data_loader
 
 # %%
-distances, embs = init_corpus('data/sample/en_ewt-ud-train.conllu')
-embs = embs.reshape(embs.shape[1], embs.shape[0], -1)
-data = ProbingDataset(embs, distances)
-
-
-# %%
-def custom_collate_fn(items):
-    result = []
-    for batch_item in items:
-        embs = batch_item[0]
-        raw_label = batch_item[1]
-        length = torch.tensor([raw_label.shape[0]])
-        label_placeholder = torch.full((embs.shape[0], embs.shape[0]), -1)
-        label_placeholder[0: raw_label.shape[0], 0: raw_label.shape[1]] = raw_label
-        result.append((embs, label_placeholder, length))
-    return result
-
-train_data_loader = DataLoader(data, collate_fn=custom_collate_fn, batch_size=4)
+# Prep data-loaders
+train_dataloader = init_dataloader_sequential(config.path_to_data_train, config.struct_probe_train_batch_size)
+valid_dataloader = init_dataloader_sequential('data/sample/en_ewt-ud-dev.conllu', 1)
 
 # %%
 from torch import optim
@@ -766,52 +767,87 @@ correspond to a single sentence.
 '''
 
 # I recommend you to write a method that can evaluate the UUAS & loss score for the dev (& test) corpus.
-# Feel free to alter the signature of this method.
-def evaluate_probe(probe, _data):
-    # YOUR CODE HERE
+def evaluate_probe(probe, data_loader):
+    loss_score = 0
+    uuas_score = 0
+    
+    probe.eval()
+    loss_function = L1DistanceLoss()
+    
+    with torch.no_grad():
+        for batch_item in data_loader:
+            for item in batch_item:
+                X, y = item
+
+                if len(X.shape) == 2:
+                    X = X.unsqueeze(0)
+                
+                pred_distances = probe(X)
+                item_loss, _ = loss_function(pred_distances, y, torch.tensor(len(y)))
+                
+                if len(pred_distances.shape) > 2:
+                    pred_distances = pred_distances.squeeze(0)
+                    
+                uuas = calc_uuas(pred_distances, y)
+                print(y)
+                
+                loss_score += item_loss.item()
+                uuas_score += uuas
 
     return loss_score, uuas_score
 
-# Feel free to alter the signature of this method.
 def train(
-    train_data_loader,
-    config=None
+    train_dataloader: DataLoader,
+    valid_dataloader: DataLoader,
+    config: Config
 ):
-    emb_dim = 768
-    rank = 64
-    lr = 10e-4
-    batch_size = 24
-    epochs = 5
+    emb_dim: int = config.struct_probe_emb_dim
+    rank: int = config.struct_probe_rank
+    lr: float = config.struct_probe_lr
+    epochs: int = config.struct_probe_train_epoch
 
-    probe = StructuralProbe(emb_dim, rank)
+    probe: nn.Module = StructuralProbe(emb_dim, rank)
+
+    # Training tools
     optimizer = optim.Adam(probe.parameters(), lr=lr)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5,patience=1)
-    loss_function =  L1DistanceLoss()
+    loss_function = L1DistanceLoss()
 
     for epoch in range(epochs):
-        for train_batch in train_data_loader:
+        for train_batch in train_dataloader:
+            # Setup             
+            probe.train()
             optimizer.zero_grad()
+            
+            batch_loss = torch.tensor([0.0])
 
-            batch_loss = torch.Tensor([0])
             for train_item in train_batch:
-                train_X, train_y, length = train_item
+                train_X, train_y = train_item
 
                 if len(train_X.shape) == 2:
                     train_X = train_X.unsqueeze(0)
-
+                
                 pred_distances = probe(train_X)
-                item_loss, sents = loss_function(pred_distances, train_y, length)
+                item_loss, sents = loss_function(pred_distances, train_y, torch.tensor(len(train_y)))
                 batch_loss += item_loss
 
             batch_loss.backward()
             optimizer.step()
+        
+        # Calculate validation scores
+        valid_loss, valid_uuas = evaluate_probe(probe, valid_dataloader)
 
-        # - [] Pass in _dev_data
-#         dev_loss, dev_uuas = evaluate_probe(probe, _dev_data)
-
-        # Using a scheduler is up to you, and might require some hyper param fine-tuning
-#         scheduler.step(dev_loss)
+        # TODO: Param-tune scheduler (?)
+#         scheduler.step(valid_loss)
 
     return probe
 
-train(train_data_loader)
+train(train_dataloader, valid_dataloader, config)
+
+# %%
+sample_item = next(iter(train_dataloader))
+
+# %%
+sample_item[0][0].shape
+
+# %%
