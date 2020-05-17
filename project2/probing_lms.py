@@ -34,7 +34,8 @@
 from config import Config
 
 config: Config = Config(
-    will_train_simple_probe=False
+    will_train_simple_probe=False,
+    struct_probe_train_epoch=20
 )
 # %%
 #
@@ -768,31 +769,42 @@ correspond to a single sentence.
 
 # I recommend you to write a method that can evaluate the UUAS & loss score for the dev (& test) corpus.
 def evaluate_probe(probe, data_loader):
+    loss_scores: List[Tensor] = []
+    uuas_scores: List[Tensor] = []
     loss_score = 0
     uuas_score = 0
-    
+
     probe.eval()
     loss_function = L1DistanceLoss()
-    
+
     with torch.no_grad():
-        for batch_item in data_loader:
+        for idx, batch_item in enumerate(data_loader):
             for item in batch_item:
                 X, y = item
 
                 if len(X.shape) == 2:
                     X = X.unsqueeze(0)
-                
+
+                # Sentences with strange tokens, we ignore for the moment
+                if len(y) < 2:
+                    continue
+
                 pred_distances = probe(X)
                 item_loss, _ = loss_function(pred_distances, y, torch.tensor(len(y)))
-                
+
                 if len(pred_distances.shape) > 2:
                     pred_distances = pred_distances.squeeze(0)
-                    
+
                 uuas = calc_uuas(pred_distances, y)
-                print(y)
-                
+
                 loss_score += item_loss.item()
-                uuas_score += uuas
+                loss_scores.append(torch.tensor(item_loss.item()))
+                uuas_scores.append(torch.tensor(uuas, dtype=torch.float))
+
+    loss_score = torch.mean(torch.stack(loss_scores))
+    uuas_score = torch.mean(torch.stack(uuas_scores))
+    print(f"Average evaluation loss score is {loss_score}")
+    print(f"Average evaluation uuas score is {uuas_score}")
 
     return loss_score, uuas_score
 
@@ -814,40 +826,37 @@ def train(
     loss_function = L1DistanceLoss()
 
     for epoch in range(epochs):
+        print(f"\n---- EPOCH {epoch + 1} ---- \n")
         for train_batch in train_dataloader:
-            # Setup             
+            # Setup
             probe.train()
             optimizer.zero_grad()
-            
+
             batch_loss = torch.tensor([0.0])
 
             for train_item in train_batch:
                 train_X, train_y = train_item
+                train_X, train_y = train_item
 
                 if len(train_X.shape) == 2:
                     train_X = train_X.unsqueeze(0)
-                
+
                 pred_distances = probe(train_X)
-                item_loss, sents = loss_function(pred_distances, train_y, torch.tensor(len(train_y)))
+                item_loss, _ = loss_function(pred_distances, train_y, torch.tensor(len(train_y)))
                 batch_loss += item_loss
 
             batch_loss.backward()
             optimizer.step()
-        
+
         # Calculate validation scores
+        # TODO: Double-check that the UUAS works
         valid_loss, valid_uuas = evaluate_probe(probe, valid_dataloader)
 
-        # TODO: Param-tune scheduler (?)
-#         scheduler.step(valid_loss)
+        # TODO: Optional Param-tune scheduler (?)
+        scheduler.step(valid_loss)
 
     return probe
 
 train(train_dataloader, valid_dataloader, config)
-
-# %%
-sample_item = next(iter(train_dataloader))
-
-# %%
-sample_item[0][0].shape
 
 # %%
