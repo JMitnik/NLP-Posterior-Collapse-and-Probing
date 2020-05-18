@@ -166,6 +166,8 @@ def fetch_sen_repr_lstm(corpus: List[TokenList], lstm, tokenizer) -> List[Tensor
         hidden = lstm.init_hidden(1) # outputs an initial hidden state of zeros
         for sent in sentences_tokenized:
             output = lstm(sent.unsqueeze(0), hidden).squeeze() # Get state activation
+            if output.shape[0] == 650:
+                output = output.view(1,650)
             representations.append(output)
 
     return representations
@@ -269,7 +271,9 @@ def fetch_pos_tags(ud_parses: List[TokenList],
     """
     # If `pos_vocab` is not known, make one based on all POS tokens in `ud_parses`
     if (pos_vocab is None):
+        print('get all tokens')
         all_pos_tokens = set([pos for sent in ud_parses for pos in get_pos_from_sent(sent)])
+        print('get all pos2i')
         pos2i = {'<pad>': 0, '<unk>': 1, **{pos.strip(): i + 2 for i, pos in enumerate(all_pos_tokens)}}
         print(pos2i)
         pos_vocab = defaultdict(lambda: pos2i["<unk>"])
@@ -296,8 +300,12 @@ import os
 import itertools
 from collections import Counter
 
-lm = model  # or `lstm`
-w2i = tokenizer  # or `vocab`
+# lm = model  # or `lstm`
+# w2i = tokenizer  # or `vocab`
+# use_sample = True
+
+lm = lstm
+w2i = vocab
 use_sample = True
 
 # Function that combines the previous functions, and creates 2 tensors for a .conllu file:
@@ -309,12 +317,16 @@ def create_data(filename: str,
                 pos_vocab=None, 
                 corrupted=False,
                 corrupted_pos_tags: Optional[Dict[str, str]] = None):
+    print('getting UDParses')
     ud_parses = parse_corpus(filename)
-    sen_reps = fetch_sen_reps(ud_parses, lm, w2i)
+    print('getting pos tags and pos vocab')
     pos_tags, pos_vocab = fetch_pos_tags(ud_parses, 
                                             pos_vocab=pos_vocab, 
                                             corrupted=corrupted, 
                                             corrupted_pos_tags=corrupted_pos_tags)
+    print('getting sen reps')
+    sen_reps = fetch_sen_reps(ud_parses, lm, w2i)
+    
 
     return sen_reps, pos_tags, pos_vocab
 
@@ -327,16 +339,19 @@ def create_corrupted_tokens(use_sample: bool) -> Dict[str, str]:
     ud_parses = []
     for set_type in ['train', 'dev', 'test']:
         filename = os.path.join('data', 'sample' if use_sample else '', f'en_ewt-ud-{set_type}.conllu')
+
         ud_parses += (parse_corpus(filename))
  
     all_pos_tokens = list(set([pos for sent in ud_parses for pos in get_pos_from_sent(sent)]))
+    all_pos_tokens = ['<pad>', '<unk>', *all_pos_tokens]
 
     possible_targets_distr = Categorical(torch.tensor([1/len(all_pos_tokens) for _ in range(len(all_pos_tokens))]))
     
-    corrupted_word_type = {}
+    corrupted_word_type = defaultdict(lambda: "UNK")
     # Get a corrupted POS tag for each word
     for sentence in ud_parses:
         for token in sentence:
+                     
             corrupted_pos_tag = all_pos_tokens[possible_targets_distr.sample()]
 
             if token['form'] not in corrupted_word_type:
@@ -345,7 +360,7 @@ def create_corrupted_tokens(use_sample: bool) -> Dict[str, str]:
     return corrupted_word_type
  
  # Get out corrupted pos tokens for each word type
-corrupted_pos_tags: Dict[str, str] = create_corrupted_tokens(True)
+corrupted_pos_tags: Dict[str, str] = create_corrupted_tokens(use_sample)
 
 # %%
 
@@ -362,7 +377,6 @@ c_train_data_X, c_train_data_y, c_train_vocab = create_data(
     corrupted=True,
     corrupted_pos_tags=corrupted_pos_tags
 )
-
 
 valid_data_X, valid_data_y, _ = create_data(
     os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-dev.conllu'),
@@ -390,6 +404,7 @@ c_valid_data_X, c_valid_data_y, _ = create_data(
 # %%
 # Utility functions for transforming X and y to appropriate formats
 def transform_XY_to_concat_tensors(X: List[Tensor], y: List[Tensor]) -> Tuple[Tensor, Tensor]:
+    # X_concat = torch.cat([x.reshape(1) for x in X], dim=0)
     X_concat = torch.cat(X, dim=0)
     y_concat = torch.cat(y, dim=0)
 
@@ -443,12 +458,7 @@ from skorch.callbacks import EpochScoring, Checkpoint, TrainEndCheckpoint, LoadI
 from skorch.dataset import Dataset
 from skorch.helper import predefined_split
 
-# print('\n\n')
-# print('Train Vocab')
-# print(len(train_vocab))
-# print(train_vocab)
-# Fixed hidden_size
-hidden_size = 768
+hidden_size = train_data_X[0].shape[1] # need to be the actual hidden size
 vocab_size = len(train_vocab)#17
 
 # Probe
@@ -457,29 +467,34 @@ probe: nn.Module = SimpleProbe(
     vocab_size
 )
 
-start_from_previous_state = False
-
-train_acc = EpochScoring(scoring='accuracy', on_train=True, 
-                         name='train_acc', lower_is_better=False)
-
-early_stopping = EarlyStopping(patience=4)
-
-# We make two checkpoints, on the best validation score and at the end of the training
-# Add prefix for end_of_training model
-cp = Checkpoint(dirname=config.path_to_POS_Probe('best')) 
-train_end_cp = TrainEndCheckpoint(dirname=config.path_to_POS_Probe('best'))
-# We can add the "LoadInitState" if we want to continue training of a model
-
-# callbacks = [train_acc, cp, train_end_cp]
+train_acc = EpochScoring(scoring='accuracy', 
+                            on_train=True, 
+                            name='train_acc', 
+                            lower_is_better=False)
+early_stopping = EarlyStopping(monitor='valid_acc', patience=4, lower_is_better=False)
 
 callbacks = [train_acc, early_stopping]
 
-if start_from_previous_state == True:
-    load_state = LoadInitState(cp)
-    callbacks.append(load_state)
+
+print(len(train_data_X))
+print(len(train_data_y))
+print(train_data_X[0].shape)
+print(train_data_y[0].shape)
+
+print()
+print(len(valid_data_X))
+print(len(valid_data_y))
+for i, (x, y) in enumerate(zip(valid_data_X, valid_data_y)):
+    print(x.shape, y.shape)
+    if x.shape[0] == 650:
+        print('y')
+
 
 # Concatenate all the tensors
 train_X, train_y = transform_XY_to_concat_tensors(train_data_X, train_data_y)
+print()
+print(train_X.shape, train_y.shape)
+
 valid_X, valid_y = transform_XY_to_concat_tensors(valid_data_X, valid_data_y)
 valid_ds = Dataset(valid_X, valid_y)
 
@@ -488,7 +503,7 @@ valid_ds = Dataset(valid_X, valid_y)
 net: NeuralNetClassifier = NeuralNetClassifier(
     probe,
     callbacks=callbacks,
-    max_epochs=100,
+    max_epochs=200,
     batch_size=8,
     lr=0.0001,
     train_split=predefined_split(valid_ds),
@@ -533,11 +548,15 @@ c_train_X, c_train_y = transform_XY_to_concat_tensors(c_train_data_X, c_train_da
 c_valid_X, c_valid_y = transform_XY_to_concat_tensors(c_valid_data_X, c_valid_data_y)
 c_valid_ds = Dataset(c_valid_X, c_valid_y)
 
+c_probe: nn.Module = SimpleProbe(
+    hidden_size,
+    vocab_size
+)
 
 corrupted_net: NeuralNetClassifier = NeuralNetClassifier(
-    probe,
+    c_probe,
     callbacks=callbacks,
-    max_epochs=50,
+    max_epochs=200,
     batch_size=8,
     lr=0.0001,
     train_split=predefined_split(c_valid_ds),
@@ -545,9 +564,8 @@ corrupted_net: NeuralNetClassifier = NeuralNetClassifier(
     optimizer= torch.optim.Adam,
 )
 
+
 corrupted_net.fit(c_train_X, c_train_y)
-
-
 
 # %% [markdown]
 # # Trees
