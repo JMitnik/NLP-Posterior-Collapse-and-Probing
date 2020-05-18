@@ -15,6 +15,8 @@ class Config:
     will_train_simple_probe: bool = True
     will_train_structural_probe: bool = True
 
+    # POS Probe settings
+
     # Structural probe parameters
     struct_probe_emb_dim: int = 768
     struct_probe_rank: int = 64

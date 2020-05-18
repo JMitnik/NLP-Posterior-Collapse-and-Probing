@@ -431,6 +431,7 @@ def transform_XY_to_padded_tensors(X: List[Tensor], y: List[Tensor]) -> Tuple[Te
 
 # %%
 import torch.nn as nn
+import torch.nn.functional as F
 
 # 🏁
 # Simple Linear Model
@@ -449,6 +450,22 @@ class SimpleProbe(nn.Module):
 
         return self.softmax(logits)
 
+class ML1Probe(nn.Module):
+
+    def __init__(
+        self,
+        hidden_dim,
+        out_dim
+    ):
+        super().__init__()
+        self.h1 = nn.Linear(hidden_dim, 300)
+        self.output = nn.Linear(300, out_dim)
+
+    def forward(self, X):
+        X = F.relu(self.h1(X))
+        X = F.softmax(self.output(X))
+        return X
+
 # TODO: Make a non-linear MLP-1 Model, should have a lower selectivity
 # %%
 # DIAGNOSTIC CLASSIFIER
@@ -462,7 +479,12 @@ hidden_size = train_data_X[0].shape[1] # need to be the actual hidden size
 vocab_size = len(train_vocab)#17
 
 # Probe
-probe: nn.Module = SimpleProbe(
+# probe: nn.Module = SimpleProbe(
+#     hidden_size,
+#     vocab_size
+# )
+
+probe: nn.Module = ML1Probe(
     hidden_size,
     vocab_size
 )
@@ -476,25 +498,8 @@ early_stopping = EarlyStopping(monitor='valid_acc', patience=4, lower_is_better=
 callbacks = [train_acc, early_stopping]
 
 
-print(len(train_data_X))
-print(len(train_data_y))
-print(train_data_X[0].shape)
-print(train_data_y[0].shape)
-
-print()
-print(len(valid_data_X))
-print(len(valid_data_y))
-for i, (x, y) in enumerate(zip(valid_data_X, valid_data_y)):
-    print(x.shape, y.shape)
-    if x.shape[0] == 650:
-        print('y')
-
-
 # Concatenate all the tensors
 train_X, train_y = transform_XY_to_concat_tensors(train_data_X, train_data_y)
-print()
-print(train_X.shape, train_y.shape)
-
 valid_X, valid_y = transform_XY_to_concat_tensors(valid_data_X, valid_data_y)
 valid_ds = Dataset(valid_X, valid_y)
 
@@ -503,7 +508,7 @@ valid_ds = Dataset(valid_X, valid_y)
 net: NeuralNetClassifier = NeuralNetClassifier(
     probe,
     callbacks=callbacks,
-    max_epochs=200,
+    max_epochs=5,
     batch_size=8,
     lr=0.0001,
     train_split=predefined_split(valid_ds),
@@ -511,11 +516,17 @@ net: NeuralNetClassifier = NeuralNetClassifier(
     optimizer= torch.optim.Adam,
 )
 
+# helper function to calculate accuracy
+accuracy = lambda preds, targets: sum([1 if pred == target else 0 for pred, target in zip(preds, targets)]) / len(preds)
 
 if config.will_train_simple_probe: # Train a new model with skorch's fit
     print('Traing POS probe')
     net.fit(train_X, train_y)
     print('Done Training Probe')
+
+valid_predictions = net.predict(valid_X)
+valid_acc = accuracy(valid_predictions, valid_y)
+print(valid_acc)
 
 # Load the best version of a model, either just trained or saved
 # net.initialize()
@@ -548,7 +559,11 @@ c_train_X, c_train_y = transform_XY_to_concat_tensors(c_train_data_X, c_train_da
 c_valid_X, c_valid_y = transform_XY_to_concat_tensors(c_valid_data_X, c_valid_data_y)
 c_valid_ds = Dataset(c_valid_X, c_valid_y)
 
-c_probe: nn.Module = SimpleProbe(
+# c_probe: nn.Module = SimpleProbe(
+#     hidden_size,
+#     vocab_size
+# )
+c_probe: nn.Module = ML1Probe(
     hidden_size,
     vocab_size
 )
@@ -556,7 +571,7 @@ c_probe: nn.Module = SimpleProbe(
 corrupted_net: NeuralNetClassifier = NeuralNetClassifier(
     c_probe,
     callbacks=callbacks,
-    max_epochs=200,
+    max_epochs=1000,
     batch_size=8,
     lr=0.0001,
     train_split=predefined_split(c_valid_ds),
