@@ -260,7 +260,10 @@ assert_sen_reps(model, tokenizer, lstm, vocab)
 # 🏁
 from typing import Tuple
 
-def fetch_pos_tags(ud_parses: List[TokenList], pos_vocab: Optional[DefaultDict[str, int]] = None) -> Tuple[List[Tensor], DefaultDict]:
+def fetch_pos_tags(ud_parses: List[TokenList], 
+                    pos_vocab: Optional[DefaultDict[str, int]] = None,
+                    corrupted=False,
+                    corrupted_pos_tags: Optional[Dict[str, str]] = None)-> Tuple[List[Tensor], DefaultDict]:
     """
     Converts `ud_parses` into a tensor of POS tags.
     """
@@ -275,50 +278,91 @@ def fetch_pos_tags(ud_parses: List[TokenList], pos_vocab: Optional[DefaultDict[s
     pos_tokens_result: List[Tensor] = []
 
     sent: TokenList
+
     for sent in ud_parses:
-        pos_tokens = torch.tensor([pos_vocab[pos] for pos in get_pos_from_sent(sent)])
+        # If corrupted, let the target value be the corrupted tokens
+        if corrupted:
+            pos_tokens = torch.tensor([pos_vocab[corrupted_pos_tags[word]] for word in get_tokens_from_sent(sent)])
+        else:
+            pos_tokens = torch.tensor([pos_vocab[pos] for pos in get_pos_from_sent(sent)])
         pos_tokens_result.append(pos_tokens)
+
 
     return pos_tokens_result, pos_vocab
 
 
 # %%
 import os
+import itertools
+from collections import Counter
+
+lm = model  # or `lstm`
+w2i = tokenizer  # or `vocab`
+use_sample = True
 
 # Function that combines the previous functions, and creates 2 tensors for a .conllu file:
 # 1 containing the token representations, and 1 containing the (tokenized) pos_tags.
 
-def create_data(filename: str, lm, w2i: Dict[str, int], pos_vocab=None):
+def create_data(filename: str, 
+                lm, 
+                w2i: Dict[str, int], 
+                pos_vocab=None, 
+                corrupted=False,
+                corrupted_pos_tags: Optional[Dict[str, str]] = None):
     ud_parses = parse_corpus(filename)
     sen_reps = fetch_sen_reps(ud_parses, lm, w2i)
-    pos_tags, pos_vocab = fetch_pos_tags(ud_parses, pos_vocab=pos_vocab)
+    pos_tags, pos_vocab = fetch_pos_tags(ud_parses, 
+                                            pos_vocab=pos_vocab, 
+                                            corrupted=corrupted, 
+                                            corrupted_pos_tags=corrupted_pos_tags)
 
     return sen_reps, pos_tags, pos_vocab
 
 # %%
 # Create Corrupted Data
-def create_corrupted_data(filename: str, lm, w2i: Dict[str, int], pos_vocab=None):
-    ud_parses = parse_corpus(filename)
-    sen_reps = fetch_sen_reps(ud_parses, lm, w2i)
-    pos_tags, pos_vocab = fetch_pos_tags(ud_parses, pos_vocab=pos_vocab)
+from torch.distributions import Categorical
 
-    return sen_reps, pos_tags, pos_vocab
-    s
+def create_corrupted_tokens(use_sample: bool) -> Dict[str, str]:
+    # Get sentences from all data sets
+    ud_parses = []
+    for set_type in ['train', 'dev', 'test']:
+        filename = os.path.join('data', 'sample' if use_sample else '', f'en_ewt-ud-{set_type}.conllu')
+        ud_parses += (parse_corpus(filename))
+ 
+    all_pos_tokens = list(set([pos for sent in ud_parses for pos in get_pos_from_sent(sent)]))
+
+    possible_targets_distr = Categorical(torch.tensor([1/len(all_pos_tokens) for _ in range(len(all_pos_tokens))]))
+    
+    corrupted_word_type = {}
+    # Get a corrupted POS tag for each word
+    for sentence in ud_parses:
+        for token in sentence:
+            corrupted_pos_tag = all_pos_tokens[possible_targets_distr.sample()]
+
+            if token['form'] not in corrupted_word_type:
+                corrupted_word_type[token['form']] = corrupted_pos_tag
+    
+    return corrupted_word_type
+ 
+ # Get out corrupted pos tokens for each word type
+corrupted_pos_tags: Dict[str, str] = create_corrupted_tokens(True)
+
 # %%
-
-lm = model  # or `lstm`
-w2i = tokenizer  # or `vocab`
-use_sample = True
 
 train_data_X, train_data_y, train_vocab = create_data(
     os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-train.conllu'),
     lm,
     w2i
 )
-# print('\n\n')
-# print('Train Vocab')
-# print(len(train_vocab))
-# print(train_vocab)
+
+c_train_data_X, c_train_data_y, c_train_vocab = create_data(
+    os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-train.conllu'),
+    lm,
+    w2i,
+    corrupted=True,
+    corrupted_pos_tags=corrupted_pos_tags
+)
+
 
 valid_data_X, valid_data_y, _ = create_data(
     os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-dev.conllu'),
@@ -327,12 +371,21 @@ valid_data_X, valid_data_y, _ = create_data(
     pos_vocab=train_vocab
 )
 
-test_data_X, test_data_y, _ = create_data(
-    os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-test.conllu'),
+c_valid_data_X, c_valid_data_y, _ = create_data(
+    os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-train.conllu'),
     lm,
     w2i,
-    pos_vocab=train_vocab
+    pos_vocab=c_train_vocab,
+    corrupted=True,
+    corrupted_pos_tags=corrupted_pos_tags
 )
+
+# test_data_X, test_data_y, _ = create_data(
+#     os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-test.conllu'),
+#     lm,
+#     w2i,
+#     pos_vocab=train_vocab
+# )
 
 # %%
 # Utility functions for transforming X and y to appropriate formats
@@ -365,6 +418,7 @@ def transform_XY_to_padded_tensors(X: List[Tensor], y: List[Tensor]) -> Tuple[Te
 import torch.nn as nn
 
 # 🏁
+# Simple Linear Model
 class SimpleProbe(nn.Module):
     def __init__(
         self,
@@ -380,6 +434,7 @@ class SimpleProbe(nn.Module):
 
         return self.softmax(logits)
 
+# TODO: Make a non-linear MLP-1 Model, should have a lower selectivity
 # %%
 # DIAGNOSTIC CLASSIFIER
 # 🏁
@@ -452,53 +507,29 @@ if config.will_train_simple_probe: # Train a new model with skorch's fit
 # %%
 # A quick test to check the accuracy of the probe
 #concat_test_X, concat_test_Y = transform_XY_to_concat_tensors(test_x, test_y)
-import numpy as np
+# import numpy as np
+# 
+# test_X, test_y = transform_XY_to_concat_tensors(test_data_X, test_data_y)
 
-test_X, test_y = transform_XY_to_concat_tensors(test_data_X, test_data_y)
+# predictions = net.predict(test_X)
 
-predictions = net.predict(test_X)
+# all_pred = 0
+# correct_pred = 0
 
-all_pred = 0
-correct_pred = 0
-
-# Get the test accuracy
-for target, prediction in zip(test_y, predictions):
-    all_pred += 1
-    if target.item() == prediction:
-        correct_pred += 1
+# # Get the test accuracy
+# for target, prediction in zip(test_y, predictions):
+#     all_pred += 1
+#     if target.item() == prediction:
+#         correct_pred += 1
     
-print(f'Test Accuracy: {(correct_pred/all_pred):.4f}')
+# print(f'Test Accuracy: {(correct_pred/all_pred):.4f}')
 
-# %% [markdown]
-# Start Control Task
-from torch.distributions import Categorical
-
-print(train_X.shape)
-print(train_X[0].shape)
-print('-'*10)
-print(train_y.shape)
-print(train_y[0].shape)
-print(train_y[0].item())
-print('-'*10)
-print(len(train_vocab))
-print(train_vocab)
-print('-'*10)
-print(train_y.max())
-print(train_y.min())
-print('-'*10)
-possible_targets = list(set([float(value) for (_, value) in train_vocab.items()]))
-print(possible_targets)
-possible_targets_distr = Categorical(torch.tensor(possible_targets))
-print('-'*10)
-
-# %% Create corrupted vocab
-
-corrupted_train_y = [possible_targets_distr.sample() for _ in train_y]
-print(type(corrupted_train_y[0]))
-corrupted_train_y = torch.stack(corrupted_train_y, dim=0)
-print(corrupted_train_y.shape)
 
 # %% Train a corrupted prob classifier
+
+c_train_X, c_train_y = transform_XY_to_concat_tensors(c_train_data_X, c_train_data_y)
+c_valid_X, c_valid_y = transform_XY_to_concat_tensors(c_valid_data_X, c_valid_data_y)
+c_valid_ds = Dataset(c_valid_X, c_valid_y)
 
 callbacks = [train_acc]
 
@@ -508,25 +539,14 @@ corrupted_net: NeuralNetClassifier = NeuralNetClassifier(
     max_epochs=50,
     batch_size=8,
     lr=0.0001,
-    train_split=predefined_split(valid_ds),
+    train_split=predefined_split(c_valid_ds),
     iterator_train__shuffle=True,
     optimizer= torch.optim.Adam,
 )
 
-corrupted_net.fit(train_X, corrupted_train_y)
+corrupted_net.fit(c_train_X, c_train_y)
 
-corrupted_predictions = corrupted_net.predict(test_X)
 
-all_pred = 0
-correct_pred = 0
-# %%
-# Get the test accuracy
-for target, prediction in zip(test_y, corrupted_predictions):
-    all_pred += 1
-    if target.item() == prediction:
-        correct_pred += 1
-
-print(f'Corrupted Test Accuracy: {(correct_pred/all_pred):.4f}')
 
 # %% [markdown]
 # # Trees
