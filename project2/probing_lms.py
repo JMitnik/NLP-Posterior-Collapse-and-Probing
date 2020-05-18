@@ -439,7 +439,7 @@ class SimpleProbe(nn.Module):
 # DIAGNOSTIC CLASSIFIER
 # 🏁
 from skorch import NeuralNetClassifier
-from skorch.callbacks import EpochScoring, Checkpoint, TrainEndCheckpoint, LoadInitState
+from skorch.callbacks import EpochScoring, Checkpoint, TrainEndCheckpoint, LoadInitState, EarlyStopping
 from skorch.dataset import Dataset
 from skorch.helper import predefined_split
 
@@ -462,6 +462,8 @@ start_from_previous_state = False
 train_acc = EpochScoring(scoring='accuracy', on_train=True, 
                          name='train_acc', lower_is_better=False)
 
+early_stopping = EarlyStopping(patience=4)
+
 # We make two checkpoints, on the best validation score and at the end of the training
 # Add prefix for end_of_training model
 cp = Checkpoint(dirname=config.path_to_POS_Probe('best')) 
@@ -470,7 +472,7 @@ train_end_cp = TrainEndCheckpoint(dirname=config.path_to_POS_Probe('best'))
 
 # callbacks = [train_acc, cp, train_end_cp]
 
-callbacks = [train_acc]
+callbacks = [train_acc, early_stopping]
 
 if start_from_previous_state == True:
     load_state = LoadInitState(cp)
@@ -486,7 +488,7 @@ valid_ds = Dataset(valid_X, valid_y)
 net: NeuralNetClassifier = NeuralNetClassifier(
     probe,
     callbacks=callbacks,
-    max_epochs=50,
+    max_epochs=100,
     batch_size=8,
     lr=0.0001,
     train_split=predefined_split(valid_ds),
@@ -531,7 +533,6 @@ c_train_X, c_train_y = transform_XY_to_concat_tensors(c_train_data_X, c_train_da
 c_valid_X, c_valid_y = transform_XY_to_concat_tensors(c_valid_data_X, c_valid_data_y)
 c_valid_ds = Dataset(c_valid_X, c_valid_y)
 
-callbacks = [train_acc]
 
 corrupted_net: NeuralNetClassifier = NeuralNetClassifier(
     probe,
