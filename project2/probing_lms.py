@@ -603,7 +603,7 @@ results = {'validation_losses':validation_losses,
             'c_validation_losses': c_validation_losses,
             'c_validation_accs': c_validation_accs}
 
-rw.write_results('test', results=results)
+rw.write_results('test', 'POS', results=results)
 # %% [markdown]
 # # Trees
 #

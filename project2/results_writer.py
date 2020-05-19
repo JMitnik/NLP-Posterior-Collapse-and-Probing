@@ -12,10 +12,10 @@ class Results_Writer:
     def __init__(self):
         self.results_folder_check()
         
-    def write_results(self, file_name: str, **results: dict): # or maybe just give the results as dict
+    def write_results(self, file_name: str, model_type:str, **results: dict): # or maybe just give the results as dict
         #and maybe give config
         # add checks if fieldnames and results match
- 
+        assert model_type in ['POS', 'Edge', 'Structural'], 'Model type should be: POS, Edge or Structural'
         results = results['results']
 
         longest = max([len(r) for r in results.values()])
@@ -31,7 +31,7 @@ class Results_Writer:
 
         print(dt)
 
-        dt.to_csv(f'{results_path}POS_probe/{file_name}.csv')
+        dt.to_csv(f'{results_path}{model_type}_probe/{file_name}.csv')
         
     
     def results_folder_check(self):
