@@ -14,6 +14,7 @@ class Config:
 
     # Feature Model types
     feature_model_type: str = 'LSTM'
+    feature_model_dimensionality: int = 650
     default_trans_model_type: str = 'distilgpt2'
 
     # Booleans
@@ -33,7 +34,7 @@ class Config:
     # Field names for the POS probe results
 
     # Structural probe parameters
-    struct_probe_emb_dim: int = 768
+    # struct_probe_emb_dim: int = 768
     struct_probe_rank: int = 64
     struct_probe_lr: float = 10e-4
     struct_probe_train_batch_size: int = 24
@@ -41,6 +42,16 @@ class Config:
     struct_probe_train_factor: float = 0.5
     struct_probe_train_patience: int = 1
 
+    # Dependency edge parameters
+    # struct_probe_emb_dim: int = 768
+    dep_probe_rank: int = 64
+    dep_probe_lr: float = 10e-4
+    dep_probe_train_batch_size: int = 24
+    dep_probe_train_epoch: int = 5
+    dep_probe_train_factor: float = 0.5
+    dep_probe_train_patience: int = 1
+
+
     def to_dict(self):
-        config_dict = asdict(self)
+        return asdict(self)
 

@@ -16,7 +16,7 @@ class ResultsWriter:
 
     def write_results(self, probe_type: str, feature_model_type: str, file_name: str = '', results: Dict[str, list] = {}):
         # Ensure probe_type matches support models
-        assert probe_type in ['POS', 'dep_edge', 'struct_probe'], 'Model type should be: POS, dep_edge or struct_probe'
+        assert probe_type in ['POS', 'dep_edge', 'struct'], 'Model type should be: POS, dep_edge or struct'
 
         longest = max([len(r) for r in results.values()])
 
@@ -50,15 +50,15 @@ class ResultsWriter:
                                 f'epochs{self.config.pos_probe_train_epoch}_'
                                 f'bs{self.config.pos_probe_train_batch_size}')
         elif probe_type == 'dep_edge':
-            file_name = (f'dep_edge_{self.config.run_label}_lr{self.config.pos_probe_train_lr}_'
-                                f'patience{self.config.pos_probe_train_patience}_'
-                                f'epochs{self.config.pos_probe_train_epoch}_'
-                                f'bs{self.config.pos_probe_train_batch_size}')
-        elif probe_type == 'struct_probe':
-            file_name = (f'Strict_probe_{self.config.run_label}_lr{self.config.pos_probe_train_lr}_'
-                                f'patience{self.config.pos_probe_train_patience}_'
-                                f'epochs{self.config.pos_probe_train_epoch}_'
-                                f'bs{self.config.pos_probe_train_batch_size}')
+            file_name = (f'dep_edge_{self.config.run_label}_{feature_model_type}_lr{self.config.struct_probe_lr}_'
+                                f'rank{self.config.struct_probe_rank}_'
+                                f'epochs{self.config.struct_probe_train_epoch}_'
+                                f'bs{self.config.struct_probe_train_batch_size}')
+        elif probe_type == 'struct':
+            file_name = (f'struct_{self.config.run_label}_{feature_model_type}_lr{self.config.struct_probe_lr}_'
+                                f'rank{self.config.struct_probe_rank}_'
+                                f'epochs{self.config.struct_probe_train_epoch}_'
+                                f'bs{self.config.struct_probe_train_batch_size}')
         else:
             print("Not certain what probe is used, defaults to POS")
             file_name = (f'POS_{self.config.run_label}_lr{self.config.struct_probe_lr}_'

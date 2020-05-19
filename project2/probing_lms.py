@@ -38,7 +38,7 @@ config: Config = Config(
     will_train_simple_probe=True,
     will_train_structural_probe=True,
     will_train_dependency_probe=True,
-    struct_probe_train_epoch=100,
+    struct_probe_train_epoch=5,
     struct_probe_lr=0.001
 )
 
@@ -232,7 +232,7 @@ import pickle
 # Make sure you correctly average the subword representations that belong to 1 token!
 
 def fetch_sen_reps(ud_parses: List[TokenList], model, tokenizer, concat=False) -> List[Tensor]:
-    if 'RNN' in str(model):
+    if 'RNN' in type(model).__name__:
         return fetch_sen_repr_lstm(ud_parses, model, tokenizer)
 
     return fetch_sen_repr_transformer(ud_parses, model, tokenizer)
@@ -308,9 +308,12 @@ from collections import Counter
 if config.feature_model_type == 'LSTM':
     print("Important: We will use LSTM as our model representation")
     model = lstm
+    model_name = 'LSTM'
+    config.feature_model_dimensionality = 650
     w2i = vocab
 else:
     print("Important: We will use {config.feature_model_type} as our model representation")
+    config.feature_model_dimensionality = 768
     model = trans_model
     w2i = trans_tokenizer
 
@@ -335,7 +338,7 @@ def create_data(
                                             pos_vocab=pos_vocab,
                                             corrupted=corrupted,
                                             corrupted_pos_tags=corrupted_pos_tags)
-    print(f'Fetching sen reps using {model}')
+    print(f'Fetching sen reps using {type(model).__name__} in `create_data`')
     sen_reps = fetch_sen_reps(ud_parses, model, w2i)
 
 
@@ -358,7 +361,7 @@ def create_corrupted_tokens(use_sample: bool) -> Dict[str, str]:
 
     possible_targets_distr = Categorical(torch.tensor([1/len(all_pos_tokens) for _ in range(len(all_pos_tokens))]))
 
-    corrupted_word_type = defaultdict(lambda: "UNK")
+    corrupted_word_type: DefaultDict[str, str] = defaultdict(lambda: "UNK")
     # Get a corrupted POS tag for each word
     for sentence in ud_parses:
         for token in sentence:
@@ -606,7 +609,7 @@ if config.will_control_task_simple_prob:
     pos_probe_results['corrupted_validation_accs'] = corrupted_validation_accs
 
 # Now write results at the end of the POS
-rw.write_results('POS', str(model), results=pos_probe_results)
+rw.write_results('POS', config.feature_model_type, results=pos_probe_results)
 # %% [markdown]
 # # Trees
 #
@@ -710,9 +713,6 @@ def create_gold_distances(corpus) -> List[Tensor]:
         all_distances.append(distances)
 
     return all_distances
-
-# TODO: Check if we did these distances properly
-distances = create_gold_distances(sample_corpus)
 
 # %% [markdown]
 # The next step is now to do the previous step the other way around. After all, we are mainly interested in predicting the node distances of a sentence, in order to recreate the corresponding parse tree.
@@ -1104,7 +1104,7 @@ def train(
     valid_dataloader: DataLoader,
     config: Config
 ):
-    emb_dim: int = config.struct_probe_emb_dim
+    emb_dim: int = config.feature_model_dimensionality
     rank: int = config.struct_probe_rank
     lr: float = config.struct_probe_lr
     epochs: int = config.struct_probe_train_epoch
@@ -1145,8 +1145,8 @@ def train(
         # Calculate validation scores
         # TODO: Double-check that the UUAS works
         valid_loss, valid_uuas = evaluate_probe(probe, valid_dataloader)
-        valid_losses.append(valid_loss)
-        valid_uuas_scores.append(valid_uuas)
+        valid_losses.append(valid_loss.item())
+        valid_uuas_scores.append(valid_uuas.item())
 
         # TODO: Optional Param-tune scheduler (?)
 #         scheduler.step(valid_loss)
@@ -1154,16 +1154,19 @@ def train(
     return probe, valid_losses, valid_uuas_scores
 
 if config.will_train_structural_probe:
+    print("Loading in data for structural probe!")
     train_dataloader = init_dataloader_sequential(config.path_to_data_train, config.struct_probe_train_batch_size)
     valid_dataloader = init_dataloader_sequential('data/sample/en_ewt-ud-dev.conllu', 1)
+    print("Starting training for structural probe!")
     trained_probe, valid_losses, valid_uuas_scores = train(train_dataloader, valid_dataloader, config)
+    print("Finished training for structural probe!")
 
     struct_probe_results = {
         'probe_valid_losses': valid_losses,
         'probe_valid_uuas_scores': valid_uuas_scores
     }
 
-    rw.write_results('struct_probe', str(model), '', struct_probe_results)
+    rw.write_results('struct', config.feature_model_type, '', struct_probe_results)
 
 # %% [markdown]
 # # Structural Probing Control Task
@@ -1255,6 +1258,11 @@ def evaluate_dep_probe(probe, data_loader):
                     print(f"Encountered: null sentence at idx {idx}")
                     continue
 
+                # In case we will deal with the control task, decrease the parent by 1
+                sen_len = len(valid_y)
+                if sen_len in valid_y:
+                    valid_y[valid_y == sen_len] = sen_len - 1
+
                 masked_idx = valid_y != -1
                 masked_pred = pred[masked_idx]
                 masked_y = valid_y[masked_idx].long()
@@ -1278,10 +1286,10 @@ def train_dep_parsing(
     valid_dataloader: DataLoader,
     config: Config
 ):
-    emb_dim: int = config.struct_probe_emb_dim
+    emb_dim: int = config.feature_model_dimensionality
     rank: int = config.struct_probe_rank
     lr: float = config.struct_probe_lr
-    epochs: int = config.struct_probe_train_epoch
+    epochs: int = config.dep_probe_train_epoch
 
     probe: nn.Module = TwoWordBilinearLabelProbe(
         max_rank=rank,
@@ -1315,6 +1323,11 @@ def train_dep_parsing(
 
                 pred = probe(train_X).squeeze()
 
+                # In case we will deal with the control task, decrease the parent by 1
+                sen_len = len(train_y)
+                if sen_len in train_y:
+                    train_y[train_y == sen_len] = sen_len - 1
+
                 masked_idx = train_y != -1
                 masked_pred = pred[masked_idx]
                 masked_y = train_y[masked_idx].long()
@@ -1327,6 +1340,8 @@ def train_dep_parsing(
             optimizer.step()
 
         valid_loss, acc_score = evaluate_dep_probe(probe, valid_dataloader)
+        acc_scores.append(acc_score.item())
+        valid_losses.append(valid_loss.item())
 
     return probe, valid_losses, acc_scores
 
@@ -1414,4 +1429,4 @@ if config.will_control_task_dependency_probe:
     dep_probe_results['corrupted_valid_losses'] = corrupted_dep_valid_losses
     dep_probe_results['corrupted_dep_valid_acc'] = corrupted_dep_valid_acc
 
-rw.write_results('dep_edge', str(model), '', dep_probe_results)
+rw.write_results('dep_edge', config.feature_model_type, '', dep_probe_results)
