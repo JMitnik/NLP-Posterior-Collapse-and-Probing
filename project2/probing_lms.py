@@ -394,7 +394,7 @@ probe: nn.Module = SimpleProbe(
 
 load_model = False
 
-train_acc = EpochScoring(scoring='accuracy', on_train=True, 
+train_acc = EpochScoring(scoring='accuracy', on_train=True,
                          name='train_acc', lower_is_better=False)
 
 cp = Checkpoint(dirname=config.path_to_POS_Probe(1))
@@ -406,7 +406,6 @@ callbacks = [train_acc, cp, train_end_cp]
 
 if load_model == True:
     callbacks.append(load_state)
-
 
 # Concatenate all the tensors
 concat_X, concat_Y = transform_XY_to_concat_tensors(train_X, train_y)
@@ -429,8 +428,6 @@ net: NeuralNetClassifier = NeuralNetClassifier(
 
 
 if config.will_train_simple_probe:
-    # Train the network using Skorch's fit
-    # TODO: Test
     print('Traing POS probe')
     net.fit(concat_X, concat_Y)
     print('Done Training Probe')
@@ -570,6 +567,14 @@ def create_gold_distances(corpus) -> List[Tensor]:
 
 # TODO: Check if we did these distances properly
 distances = create_gold_distances(sample_corpus)
+
+# %%
+sample_feature = train_X[0]
+sample_feature = sample_feature.unsqueeze(0)
+seqlen = sample_feature.shape[1]
+transformed = sample_feature.unsqueeze(2)
+transformed = transformed.expand(-1, -1, seqlen, -1)
+transformed.shape
 
 # %% [markdown]
 # The next step is now to do the previous step the other way around. After all, we are mainly interested in predicting the node distances of a sentence, in order to recreate the corresponding parse tree.
@@ -779,7 +784,83 @@ def custom_collate_fn(items: List[Tensor]) -> List[Tensor]:
     return items
 
 # %%
-def init_corpus(path, concat=False, cutoff=None):
+# Utility functions for dependency parsing
+
+get_parent_children_combo_from_tree = lambda tree: [
+    (i.up.name, (i.name)) 
+    for i in tokentree_to_ete(tree).search_nodes() 
+    if i.up is not None
+]
+
+map_pc_combo_to_parent_edges = lambda id_idx_map, tuple_list: [(id_idx_map[int(i[0])], id_idx_map[int(i[1])]) for i in tuple_list]
+
+def create_gold_parent_distance_edges(corpus: List[TokenList]):
+    """
+    Assigns for each sentence, a 1 for child (row) to parent (column).
+    """
+    all_edges: List[Tensor] = []
+        
+    for sent in corpus:
+        sent_tree = sent.to_tree()
+        sent_id2idx = {i['id']: idx for idx, i in enumerate(sent)}
+        
+        # Calculate tuples of (parent, child), and then map their ID to their respective indices         
+        parent_child_tuples = get_parent_children_from_tree(sent_tree)
+        parent_child_tuples = map_pc_combo_to_parent_edges(sent_id2idx, parent_child_tuples)
+        
+        # Initialize our matrix         
+        sen_len = len(sent)
+        distances = torch.zeros((sen_len, sen_len))
+        
+        for parent_edge in parent_child_tuples:
+            parent_idx, child_idx = parent_edge
+            distances[child_idx, parent_idx] = 1
+        
+        all_edges.append(distances)
+    
+    return all_edges
+
+def create_gold_parent_distance_idxs_only(corpus: List[TokenList]) -> List[Tuple[Tensor, int]]:
+    """
+    Assigns for each sentence the index of the parent node.
+    If node is -1, then that node has no parent (should be ignored).
+    
+    Input:
+        - corpus: list of TokenLists
+    Output:
+        List of tuple(gold indices of parent, index of root)
+    """
+    all_edges: List[Tuple[Tensor, int]] = []
+        
+    print(len(corpus))
+    
+    for sent in corpus:
+        sent_tree = sent.to_tree()
+        sent_id2idx = {i['id']: idx for idx, i in enumerate(sent)}
+        
+        # Calculate tuples of (parent, child), and then map their ID to their respective indices         
+        parent_child_tuples = get_parent_children_from_tree(sent_tree)
+        parent_child_tuples = map_pc_combo_to_parent_edges(sent_id2idx, parent_child_tuples)
+        
+        # Initialize our matrix         
+        sen_len = len(sent)
+        edges = torch.zeros((sen_len))
+        
+        root_idx = sent_id2idx[sent_tree.token['id']]
+        
+        # For each edge, assign in the corresponding index the parent index, and -1 for root         
+        for parent_edge in parent_child_tuples:
+            parent_idx, child_idx = parent_edge
+            edges[child_idx] = parent_idx
+            edges[root_idx] = -1
+        
+        all_edges.append((edges, root_idx))
+    
+    return all_edges
+
+
+# %%
+def init_corpus(path, model=model, concat=False, cutoff=None, use_dependencies=False):
     """ Initialises the data of a corpus.
 
     Parameters
@@ -800,7 +881,10 @@ def init_corpus(path, concat=False, cutoff=None):
 #     max_length_size = embs.shape[0]
 
 #     embs = embs.reshape(corpus_size, max_length_size, -1)
-    gold_distances = create_gold_distances(corpus)
+    if not use_dependencies:
+        gold_distances = create_gold_distances(corpus)
+    else:
+        gold_distances = create_gold_parent_distance_idxs_only(corpus)
 
     return gold_distances, embs
 
@@ -914,4 +998,224 @@ def train(
 
 train(train_dataloader, valid_dataloader, config)
 
+
+# %% [markdown]
+# # Structural Probing Control Task
+
 # %%
+
+class TwoWordBilinearLabelProbe(nn.Module):
+  """ Computes a bilinear function of pairs of vectors.
+  For a batch of sentences, computes all n^2 pairs of scores
+  for each sentence in the batch.
+  """
+  def __init__(
+      self,
+      max_rank: int,
+      feature_dim: int,
+      dropout_p: float
+  ):
+    super().__init__()
+    self.maximum_rank = max_rank
+    self.feature_dim = feature_dim
+    self.proj_L = nn.Parameter(data = torch.zeros(self.feature_dim, self.maximum_rank), requires_grad=True)
+    self.proj_R = nn.Parameter(data = torch.zeros(self.maximum_rank, self.feature_dim), requires_grad=True)
+    self.bias = nn.Parameter(data=torch.zeros(1), requires_grad=True)
+
+    nn.init.uniform_(self.proj_L, -0.05, 0.05)
+    nn.init.uniform_(self.proj_R, -0.05, 0.05)
+    nn.init.uniform_(self.bias, -0.05, 0.05)
+
+    self.dropout = nn.Dropout(p=dropout_p)
+    self.softmax = nn.Softmax(2)
+
+  def forward(self, batch):
+    """ Computes all n^2 pairs of attachment scores
+    for each sentence in a batch.
+    Computes h_i^TAh_j for all i,j
+    where A = LR, L in R^{model_dim x maximum_rank}; R in R^{maximum_rank x model_rank}
+    hence A is rank-constrained to maximum_rank.
+    Args:
+      batch: a batch of word representations of the shape
+        (batch_size, max_seq_len, representation_dim)
+    Returns:
+      A tensor of scores of shape (batch_size, max_seq_len, max_seq_len)
+    """
+    batchlen, seqlen, rank = batch.size()
+    batch = self.dropout(batch)
+    # A/Proj = L * R
+    proj = torch.mm(self.proj_L, self.proj_R)
+
+    # Expand matrix to allow another instance of all cols/rows
+    batch_square = batch.unsqueeze(2).expand(batchlen, seqlen, seqlen, rank)
+
+    # Add another instance of seqlen (do it on position 1 for some reason)
+    # => change view so that it becomes rows of 'rank/hidden-dim'
+    batch_transposed = batch.unsqueeze(1).expand(batchlen, seqlen, seqlen, rank).contiguous().view(batchlen*seqlen*seqlen,rank,1)
+
+    # Multiply the `batch_square` matrix with the projection
+    psd_transformed = torch.matmul(batch_square.contiguous(), proj).view(batchlen*seqlen*seqlen,1, rank)
+
+    # Multiple resulting matrix `psd_transform` with each j
+    logits = (torch.bmm(psd_transformed, batch_transposed) + self.bias).view(batchlen, seqlen, seqlen)
+
+    probs = self.softmax(logits)
+    return probs
+
+
+# %%
+probe = TwoWordBilinearLabelProbe(
+    max_rank=64,
+    feature_dim=768,
+    dropout_p=0.5
+)
+
+# %%
+pred = probe(sample_feature)
+
+# %%
+sample_tree = sample_sent.to_tree()
+sample_ete_tree = tokentree_to_ete(sample_tree)
+
+
+def get_children_from_parent(token_tree, results=[]):
+    token_id = token_tree.token['id']
+    children_ids = [child.token['id'] for child in sample_tree.children]
+    
+    if len(len(sample_tree.token.children) > 0):
+        local_results = get_children_from_parent(local_results)
+    
+    return (token_id, children_ids)
+
+
+# %%
+from torch.nn import NLLLoss
+
+def evaluate_dep_probe(probe, data_loader):
+    loss_scores: List[Tensor] = []
+    loss_score = 0
+
+    probe.eval()
+    loss_function = NLLLoss()
+
+    with torch.no_grad():
+        for idx, batch_item in enumerate(data_loader):
+            for item in batch_item:
+                valid_X, valid_y_tup = item
+                
+                valid_X = valid_X.unsqueeze(0)
+                valid_y, valid_y_root_idx = valid_y_tup
+                
+                pred = probe(valid_X).squeeze()
+                           # Sentences with strange tokens, we ignore for the moment
+                if len(valid_y) < 2:
+                    print(f"Encountered: null sentence at idx {idx}")
+                    continue
+                    
+                masked_idx = valid_y != -1
+                masked_pred = pred[masked_idx]
+                masked_y = valid_y[masked_idx].long()
+                
+                item_loss = loss_function(masked_pred, masked_y)
+
+ 
+
+                loss_scores.append(torch.tensor(item_loss.item()))
+
+    loss_score = torch.mean(torch.stack(loss_scores))
+    print(f"Average evaluation loss score is {loss_score}")
+
+    return loss_score
+
+
+def train_dep_parsing(
+    train_dataloader: DataLoader,
+    valid_dataloader: DataLoader,
+    config: Config
+):
+    emb_dim: int = config.struct_probe_emb_dim
+    rank: int = config.struct_probe_rank
+    lr: float = config.struct_probe_lr
+    epochs: int = config.struct_probe_train_epoch
+
+    probe: nn.Module = TwoWordBilinearLabelProbe(
+        max_rank=rank,
+        feature_dim=emb_dim,
+        dropout_p=0.5
+    )
+
+    # Training tools
+    optimizer = optim.Adam(probe.parameters(), lr=lr)
+#     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5,patience=1)
+    loss_function = NLLLoss()
+
+    for epoch in range(epochs):
+        print(f"\n---- EPOCH {epoch + 1} ---- \n")
+        
+        for train_batch in train_dataloader:
+            # Setup
+            probe.train()
+            optimizer.zero_grad()
+
+            batch_loss = torch.tensor([0.0])
+
+            for train_item in train_batch:
+                train_X, train_y_tup = train_item
+                
+                train_X = train_X.unsqueeze(0)
+                train_y, train_y_root_idx = train_y_tup
+                
+                pred = probe(train_X).squeeze()
+
+                
+                masked_idx = train_y != -1
+                masked_pred = pred[masked_idx]
+                masked_y = train_y[masked_idx].long()
+                
+                item_loss = loss_function(masked_pred, masked_y)
+                batch_loss += item_loss
+
+            batch_loss.backward()
+            optimizer.step()
+
+        # Calculate validation scores
+        # TODO: Double-check that the UUAS works
+        valid_loss = evaluate_dep_probe(probe, valid_dataloader)
+
+        # TODO: Optional Param-tune scheduler (?)
+#         scheduler.step(valid_loss)
+
+    return probe
+
+
+# %%
+train_dep_parsing(
+    train_dataloader,
+    valid_dataloader,
+    config
+)
+
+# %%
+train_data_raw = init_corpus(config.path_to_data_train, use_dependencies=True)
+train_dataset = ProbingDataset(train_data_raw[1], train_data_raw[0])
+train_dataloader = DataLoader(train_dataset, batch_size=8, collate_fn=custom_collate_fn)
+
+valid_data_raw = init_corpus(config.path_to_data_valid, use_dependencies=True)
+valid_dataset = ProbingDataset(valid_data_raw[1], valid_data_raw[0])
+valid_dataloader = DataLoader(valid_dataset, batch_size=8, collate_fn=custom_collate_fn)
+
+# %%
+sample_probe = TwoWordBilinearLabelProbe(64, 768, 0.5)
+sample_X = train_data_raw[1][0].unsqueeze(0)
+sample_Y, sample_Y_root_idx = train_data_raw[0][0]
+sample_pred = sample_probe(sample_X).squeeze()
+
+# Mask idx of the root
+masked_idx = sample_Y != -1
+masked_pred = sample_pred[masked_idx]
+masked_y = sample_Y[masked_idx].long()
+
+
+
+# %%
+masked_y
