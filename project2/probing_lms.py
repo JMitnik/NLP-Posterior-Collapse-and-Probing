@@ -168,6 +168,8 @@ def fetch_sen_repr_lstm(corpus: List[TokenList], lstm, tokenizer) -> List[Tensor
         hidden = lstm.init_hidden(1) # outputs an initial hidden state of zeros
         for sent in sentences_tokenized:
             output = lstm(sent.unsqueeze(0), hidden).squeeze() # Get state activation
+            if output.shape[0] == 650:
+                output = output.view(1,650)
             representations.append(output)
 
     return representations
@@ -262,62 +264,137 @@ assert_sen_reps(model, tokenizer, lstm, vocab)
 # 🏁
 from typing import Tuple
 
-def fetch_pos_tags(ud_parses: List[TokenList], pos_vocab: Optional[DefaultDict[str, int]] = None) -> Tuple[List[Tensor], DefaultDict]:
+def fetch_pos_tags(ud_parses: List[TokenList],
+                    pos_vocab: Optional[DefaultDict[str, int]] = None,
+                    corrupted=False,
+                    corrupted_pos_tags: Optional[Dict[str, str]] = None)-> Tuple[List[Tensor], DefaultDict]:
     """
     Converts `ud_parses` into a tensor of POS tags.
     """
     # If `pos_vocab` is not known, make one based on all POS tokens in `ud_parses`
     if (pos_vocab is None):
+        print('get all tokens')
         all_pos_tokens = set([pos for sent in ud_parses for pos in get_pos_from_sent(sent)])
+        print('get all pos2i')
         pos2i = {'<pad>': 0, '<unk>': 1, **{pos.strip(): i + 2 for i, pos in enumerate(all_pos_tokens)}}
         pos_vocab = defaultdict(lambda: pos2i["<unk>"])
         pos_vocab.update(pos2i)
     pos_tokens_result: List[Tensor] = []
 
     sent: TokenList
+
     for sent in ud_parses:
-        pos_tokens = torch.tensor([pos_vocab[pos] for pos in get_pos_from_sent(sent)])
+        # If corrupted, let the target value be the corrupted tokens
+        if corrupted:
+            pos_tokens = torch.tensor([pos_vocab[corrupted_pos_tags[word]] for word in get_tokens_from_sent(sent)])
+        else:
+            pos_tokens = torch.tensor([pos_vocab[pos] for pos in get_pos_from_sent(sent)])
         pos_tokens_result.append(pos_tokens)
+
 
     return pos_tokens_result, pos_vocab
 
 
 # %%
 import os
+import itertools
+from collections import Counter
+
+# lm = model  # or `lstm`
+# w2i = tokenizer  # or `vocab`
+# use_sample = True
+
+lm = lstm
+w2i = vocab
+use_sample = True
 
 # Function that combines the previous functions, and creates 2 tensors for a .conllu file:
 # 1 containing the token representations, and 1 containing the (tokenized) pos_tags.
 
-def create_data(filename: str, lm, w2i: Dict[str, int], pos_vocab=None):
+def create_data(filename: str,
+                lm,
+                w2i: Dict[str, int],
+                pos_vocab=None,
+                corrupted=False,
+                corrupted_pos_tags: Optional[Dict[str, str]] = None):
+    print('getting UDParses')
     ud_parses = parse_corpus(filename)
+    print('getting pos tags and pos vocab')
+    pos_tags, pos_vocab = fetch_pos_tags(ud_parses,
+                                            pos_vocab=pos_vocab,
+                                            corrupted=corrupted,
+                                            corrupted_pos_tags=corrupted_pos_tags)
+    print('getting sen reps')
     sen_reps = fetch_sen_reps(ud_parses, lm, w2i)
-    pos_tags, pos_vocab = fetch_pos_tags(ud_parses, pos_vocab=pos_vocab)
+
 
     return sen_reps, pos_tags, pos_vocab
 
+# %%
+# Create Corrupted Data
+from torch.distributions import Categorical
 
-lm = model  # or `lstm`
-w2i = tokenizer  # or `vocab`
-use_sample = True
+def create_corrupted_tokens(use_sample: bool) -> Dict[str, str]:
+    # Get sentences from all data sets
+    ud_parses = []
+    for set_type in ['train', 'dev', 'test']:
+        filename = os.path.join('data', 'sample' if use_sample else '', f'en_ewt-ud-{set_type}.conllu')
 
-train_X, train_y, train_vocab = create_data(
+        ud_parses += (parse_corpus(filename))
+
+    all_pos_tokens = list(set([pos for sent in ud_parses for pos in get_pos_from_sent(sent)]))
+    all_pos_tokens = ['<pad>', '<unk>', *all_pos_tokens]
+
+    possible_targets_distr = Categorical(torch.tensor([1/len(all_pos_tokens) for _ in range(len(all_pos_tokens))]))
+
+    corrupted_word_type = defaultdict(lambda: "UNK")
+    # Get a corrupted POS tag for each word
+    for sentence in ud_parses:
+        for token in sentence:
+
+            corrupted_pos_tag = all_pos_tokens[possible_targets_distr.sample()]
+
+            if token['form'] not in corrupted_word_type:
+                corrupted_word_type[token['form']] = corrupted_pos_tag
+
+    return corrupted_word_type
+
+ # Get out corrupted pos tokens for each word type
+corrupted_pos_tags: Dict[str, str] = create_corrupted_tokens(use_sample)
+
+# %%
+
+train_data_X, train_data_y, train_vocab = create_data(
     os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-train.conllu'),
     lm,
     w2i
 )
-# print('\n\n')
-# print('Train Vocab')
-# print(len(train_vocab))
-# print(train_vocab)
 
-dev_x, dev_y, _ = create_data(
+c_train_data_X, c_train_data_y, c_train_vocab = create_data(
+    os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-train.conllu'),
+    lm,
+    w2i,
+    corrupted=True,
+    corrupted_pos_tags=corrupted_pos_tags
+)
+
+valid_data_X, valid_data_y, _ = create_data(
     os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-dev.conllu'),
     lm,
     w2i,
     pos_vocab=train_vocab
 )
 
-# test_x, test_y, _ = create_data(
+c_valid_data_X, c_valid_data_y, _ = create_data(
+    os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-train.conllu'),
+    lm,
+    w2i,
+    pos_vocab=c_train_vocab,
+    corrupted=True,
+    corrupted_pos_tags=corrupted_pos_tags
+)
+
+# test_data_X, test_data_y, _ = create_data(
 #     os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-test.conllu'),
 #     lm,
 #     w2i,
@@ -327,6 +404,7 @@ dev_x, dev_y, _ = create_data(
 # %%
 # Utility functions for transforming X and y to appropriate formats
 def transform_XY_to_concat_tensors(X: List[Tensor], y: List[Tensor]) -> Tuple[Tensor, Tensor]:
+    # X_concat = torch.cat([x.reshape(1) for x in X], dim=0)
     X_concat = torch.cat(X, dim=0)
     y_concat = torch.cat(y, dim=0)
 
@@ -353,8 +431,10 @@ def transform_XY_to_padded_tensors(X: List[Tensor], y: List[Tensor]) -> Tuple[Te
 
 # %%
 import torch.nn as nn
+import torch.nn.functional as F
 
 # 🏁
+# Simple Linear Model
 class SimpleProbe(nn.Module):
     def __init__(
         self,
@@ -370,46 +450,56 @@ class SimpleProbe(nn.Module):
 
         return self.softmax(logits)
 
+class ML1Probe(nn.Module):
+
+    def __init__(
+        self,
+        hidden_dim,
+        out_dim
+    ):
+        super().__init__()
+        self.h1 = nn.Linear(hidden_dim, 300)
+        self.output = nn.Linear(300, out_dim)
+
+    def forward(self, X):
+        X = F.relu(self.h1(X))
+        X = F.softmax(self.output(X))
+        return X
+
+# TODO: Make a non-linear MLP-1 Model, should have a lower selectivity
 # %%
 # DIAGNOSTIC CLASSIFIER
 # 🏁
 from skorch import NeuralNetClassifier
-from skorch.callbacks import EpochScoring, Checkpoint, TrainEndCheckpoint, LoadInitState
+from skorch.callbacks import EpochScoring, Checkpoint, TrainEndCheckpoint, LoadInitState, EarlyStopping
 from skorch.dataset import Dataset
 from skorch.helper import predefined_split
 
-# print('\n\n')
-# print('Train Vocab')
-# print(len(train_vocab))
-# print(train_vocab)
-# Fixed hidden_size
-hidden_size = 768
+hidden_size = train_data_X[0].shape[1] # need to be the actual hidden size
 vocab_size = len(train_vocab)#17
 
 # Probe
-probe: nn.Module = SimpleProbe(
+# probe: nn.Module = SimpleProbe(
+#     hidden_size,
+#     vocab_size
+# )
+
+probe: nn.Module = ML1Probe(
     hidden_size,
     vocab_size
 )
 
-load_model = False
+train_acc = EpochScoring(scoring='accuracy',
+                            on_train=True,
+                            name='train_acc',
+                            lower_is_better=False)
+early_stopping = EarlyStopping(monitor='valid_acc', patience=4, lower_is_better=False)
 
-train_acc = EpochScoring(scoring='accuracy', on_train=True,
-                         name='train_acc', lower_is_better=False)
-
-cp = Checkpoint(dirname=config.path_to_POS_Probe(1))
-train_end_cp = TrainEndCheckpoint(dirname=config.path_to_POS_Probe(1))
-
-load_state = LoadInitState(cp)
-
-callbacks = [train_acc, cp, train_end_cp]
-
-if load_model == True:
-    callbacks.append(load_state)
+callbacks = [train_acc, early_stopping]
 
 # Concatenate all the tensors
-concat_X, concat_Y = transform_XY_to_concat_tensors(train_X, train_y)
-valid_X, valid_y = transform_XY_to_concat_tensors(dev_x, dev_y)
+train_X, train_y = transform_XY_to_concat_tensors(train_data_X, train_data_y)
+valid_X, valid_y = transform_XY_to_concat_tensors(valid_data_X, valid_data_y)
 valid_ds = Dataset(valid_X, valid_y)
 
 # Have a trainer
@@ -417,7 +507,7 @@ valid_ds = Dataset(valid_X, valid_y)
 net: NeuralNetClassifier = NeuralNetClassifier(
     probe,
     callbacks=callbacks,
-    max_epochs=10,
+    max_epochs=5,
     batch_size=8,
     lr=0.0001,
     train_split=predefined_split(valid_ds),
@@ -425,25 +515,71 @@ net: NeuralNetClassifier = NeuralNetClassifier(
     optimizer= torch.optim.Adam,
 )
 
+# helper function to calculate accuracy
+accuracy = lambda preds, targets: sum([1 if pred == target else 0 for pred, target in zip(preds, targets)]) / len(preds)
 
-
-if config.will_train_simple_probe:
+if config.will_train_simple_probe: # Train a new model with skorch's fit
     print('Traing POS probe')
-    net.fit(concat_X, concat_Y)
+    net.fit(train_X, train_y)
     print('Done Training Probe')
 
-    predictions = net.predict(concat_X)
-    golden_tags = concat_Y
+    valid_predictions = net.predict(valid_X)
+    valid_acc = accuracy(valid_predictions, valid_y)
+    print(valid_acc)
 
-    for i in range(10):
-        print(f'Pred {predictions[i]} | {concat_Y[i]} Gold')
-
+# Load the best version of a model, either just trained or saved
+# net.initialize()
+# net.load_params(checkpoint=cp)
 
 # %%
 # A quick test to check the accuracy of the probe
 #concat_test_X, concat_test_Y = transform_XY_to_concat_tensors(test_x, test_y)
-import numpy as np
+# import numpy as np
+#
+# test_X, test_y = transform_XY_to_concat_tensors(test_data_X, test_data_y)
 
+# predictions = net.predict(test_X)
+
+# all_pred = 0
+# correct_pred = 0
+
+# # Get the test accuracy
+# for target, prediction in zip(test_y, predictions):
+#     all_pred += 1
+#     if target.item() == prediction:
+#         correct_pred += 1
+
+# print(f'Test Accuracy: {(correct_pred/all_pred):.4f}')
+
+
+# %% Train a corrupted prob classifier
+
+c_train_X, c_train_y = transform_XY_to_concat_tensors(c_train_data_X, c_train_data_y)
+c_valid_X, c_valid_y = transform_XY_to_concat_tensors(c_valid_data_X, c_valid_data_y)
+c_valid_ds = Dataset(c_valid_X, c_valid_y)
+
+# c_probe: nn.Module = SimpleProbe(
+#     hidden_size,
+#     vocab_size
+# )
+c_probe: nn.Module = ML1Probe(
+    hidden_size,
+    vocab_size
+)
+
+corrupted_net: NeuralNetClassifier = NeuralNetClassifier(
+    c_probe,
+    callbacks=callbacks,
+    max_epochs=1000,
+    batch_size=8,
+    lr=0.0001,
+    train_split=predefined_split(c_valid_ds),
+    iterator_train__shuffle=True,
+    optimizer= torch.optim.Adam,
+)
+
+
+corrupted_net.fit(c_train_X, c_train_y)
 
 # %% [markdown]
 # # Trees
