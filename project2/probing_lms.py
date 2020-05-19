@@ -627,7 +627,7 @@ plt.ylabel('accuracy')
 
 # %%
 
-def plot_probe_validation_accs(filename: str, model_type: str, column_names:[str]):
+def plot_probe_validation_accs(filename: str, model_type: str, column_names:[str]=['validation_accs', 'corrupted_validation_accs']):
     assert model_type in ['POS', 'Edge', 'Structural'], 'model type needs to be: POS, Edge or Structural.'
     
     transformer_df = pd.read_csv(f'results/{model_type}/trans_{filename}.csv')
