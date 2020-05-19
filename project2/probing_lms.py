@@ -486,7 +486,7 @@ from results_writer import Results_Writer
 
 import seaborn as sns
 
-rw = Results_Writer()
+rw = Results_Writer(config)
 
 embedding_size = train_data_X[0].shape[1] # size of the word embedding (either 650 or 768)
 vocab_size = len(train_vocab)#17
@@ -603,7 +603,7 @@ results = {'validation_losses':validation_losses,
             'c_validation_losses': c_validation_losses,
             'c_validation_accs': c_validation_accs}
 
-rw.write_results('test', 'POS', results=results)
+rw.write_results('POS', results=results)
 # %% [markdown]
 # # Trees
 #

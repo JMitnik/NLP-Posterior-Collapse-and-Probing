@@ -17,6 +17,7 @@ class Config:
     will_train_dependency_probe: bool = True
 
     # POS Probe Model Params
+    pos_probe_linear = True
     pos_probe_train_batch_size: int = 32
     pos_probe_train_epoch: int = 1000
     pos_probe_train_patience: int = 4
