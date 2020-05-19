@@ -470,15 +470,23 @@ class ML1Probe(nn.Module):
 # %%
 # DIAGNOSTIC CLASSIFIER
 # 🏁
+# %reload_ext autoreload
+# %autoreload 2
+
 from skorch import NeuralNetClassifier
 from skorch.callbacks import EpochScoring, Checkpoint, TrainEndCheckpoint, LoadInitState, EarlyStopping
 from skorch.dataset import Dataset
 from skorch.helper import predefined_split
 from skorch.history import History
 
+import importlib
+import results_writer
+importlib.reload(results_writer)
 from results_writer import Results_Writer
 
-results_writer = Results_Writer(config)
+import seaborn as sns
+
+rw = Results_Writer(config)
 
 embedding_size = train_data_X[0].shape[1] # size of the word embedding (either 650 or 768)
 vocab_size = len(train_vocab)#17
@@ -498,7 +506,9 @@ train_acc = EpochScoring(scoring='accuracy',
                             on_train=True,
                             name='train_acc',
                             lower_is_better=False)
-early_stopping = EarlyStopping(monitor='valid_acc', patience=4, lower_is_better=False)
+early_stopping = EarlyStopping(monitor='valid_acc', 
+                                patience=config.pos_probe_train_patience, 
+                                lower_is_better=False)
 
 callbacks = [train_acc, early_stopping]
 
@@ -512,9 +522,9 @@ valid_ds = Dataset(valid_X, valid_y)
 net: NeuralNetClassifier = NeuralNetClassifier(
     probe,
     callbacks=callbacks,
-    max_epochs=5,
-    batch_size=32,
-    lr=0.0001,
+    max_epochs=5,#config.pos_probe_train_epoch,
+    batch_size=config.pos_probe_train_batch_size,
+    lr=config.pos_probe_train_lr,
     train_split=predefined_split(valid_ds),
     iterator_train__shuffle=True,
     optimizer= torch.optim.Adam,
@@ -528,14 +538,14 @@ if config.will_train_simple_probe: # Train a new model with skorch's fit
     net.fit(train_X, train_y)
     print('Done Training Probe')
 
-total_epochs = len(net.history)
+net_history = net.history
 valid_predictions = net.predict(valid_X)
 valid_acc = accuracy(valid_predictions, valid_y)
 print(f'Validation Accuracy: {valid_acc:.4f}')
 
-# Load the best version of a model, either just trained or saved
-# net.initialize()
-# net.load_params(checkpoint=cp)
+validation_losses = net_history[:,'valid_loss']
+validation_accs = net_history[:, 'valid_acc']
+
 
 # %%
 # A quick test to check the accuracy of the probe
@@ -563,11 +573,11 @@ c_probe: nn.Module = SimpleProbe(
 # )
 
 corrupted_net: NeuralNetClassifier = NeuralNetClassifier(
-    c_probe,
+    probe,
     callbacks=callbacks,
-    max_epochs=5,
-    batch_size=32,
-    lr=0.0001,
+    max_epochs=10,#config.pos_probe_train_epoch,
+    batch_size=config.pos_probe_train_batch_size,
+    lr=config.pos_probe_train_lr,
     train_split=predefined_split(c_valid_ds),
     iterator_train__shuffle=True,
     optimizer= torch.optim.Adam,
@@ -583,8 +593,17 @@ c_total_epochs = len(corrupted_net.history)
 valid_selectivity = valid_acc - c_valid_acc
 print(f'Validation Selectivity: {valid_selectivity:.4f}')
 
+c_history = corrupted_net.history
+c_validation_losses = c_history[:,'valid_loss']
+c_validation_accs = c_history[:,'valid_acc']
 
-results_writer.write_POS_probe_results(valid_acc, valid_selectivity, total_epochs, c_total_epochs)
+
+results = {'validation_losses':validation_losses,
+            'validation_accs':validation_accs,
+            'c_validation_losses': c_validation_losses,
+            'c_validation_accs': c_validation_accs}
+
+rw.write_results('POS', results=results)
 # %% [markdown]
 # # Trees
 #
