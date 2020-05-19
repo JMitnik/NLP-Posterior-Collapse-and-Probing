@@ -300,13 +300,13 @@ import os
 import itertools
 from collections import Counter
 
-# lm = model  # or `lstm`
-# w2i = tokenizer  # or `vocab`
-# use_sample = True
+lm = model
+w2i = tokenizer  
+use_sample = False
 
-lm = lstm
-w2i = vocab
-use_sample = True
+# lm = lstm
+# w2i = vocab
+# use_sample = True
 
 # Function that combines the previous functions, and creates 2 tensors for a .conllu file:
 # 1 containing the token representations, and 1 containing the (tokenized) pos_tags.
@@ -484,7 +484,7 @@ import results_writer
 importlib.reload(results_writer)
 from results_writer import Results_Writer
 
-import seaborn as sns
+
 
 rw = Results_Writer(config)
 
@@ -522,7 +522,7 @@ valid_ds = Dataset(valid_X, valid_y)
 net: NeuralNetClassifier = NeuralNetClassifier(
     probe,
     callbacks=callbacks,
-    max_epochs=5,#config.pos_probe_train_epoch,
+    max_epochs=config.pos_probe_train_epoch,
     batch_size=config.pos_probe_train_batch_size,
     lr=config.pos_probe_train_lr,
     train_split=predefined_split(valid_ds),
@@ -575,7 +575,7 @@ c_probe: nn.Module = SimpleProbe(
 corrupted_net: NeuralNetClassifier = NeuralNetClassifier(
     probe,
     callbacks=callbacks,
-    max_epochs=10,#config.pos_probe_train_epoch,
+    max_epochs=config.pos_probe_train_epoch,
     batch_size=config.pos_probe_train_batch_size,
     lr=config.pos_probe_train_lr,
     train_split=predefined_split(c_valid_ds),
@@ -603,7 +603,47 @@ results = {'validation_losses':validation_losses,
             'c_validation_losses': c_validation_losses,
             'c_validation_accs': c_validation_accs}
 
-rw.write_results('POS', results=results)
+rw.write_results('POS', 'Full_Transformer',results=results)
+
+# %% Visualize data
+import seaborn as sns
+import pandas as pd
+import matplotlib.pyplot as plt
+
+trans_result_df = pd.read_csv('results/POS_probe/Transformer.csv')
+trans_result_df = trans_result_df.rename(columns={'validation_accs':'Trans Val Accs', 'c_validation_accs':'Corr Trans Val Accs'})
+
+lstm_result_df = pd.read_csv('results/POS_probe/LSTM.csv')
+lstm_result_df = lstm_result_df.rename(columns={'validation_accs':'LSTM Val Accs', 'c_validation_accs':'Corr LSTM Val Accs'})
+
+sns.set_palette(sns.color_palette("BuGn_r"))
+ax1 = sns.lineplot(data=trans_result_df[['Trans Val Accs', 'Corr Trans Val Accs']], alpha=0.7)
+sns.set_palette(sns.light_palette("navy", reverse=True))
+ax2 = sns.lineplot(data=lstm_result_df[['LSTM Val Accs', 'Corr LSTM Val Accs']], alpha=0.7)
+
+
+plt.xlabel('epochs')
+plt.ylabel('accuracy')
+
+# %%
+
+def plot_probe_validation_accs(filename: str, model_type: str, column_names:[str]):
+    assert model_type in ['POS', 'Edge', 'Structural'], 'model type needs to be: POS, Edge or Structural.'
+    
+    transformer_df = pd.read_csv(f'results/{model_type}/trans_{filename}.csv')
+    transformer_df = transformer_df.rename(columns={column_names[0]:'Trans Val Accs', [column_names[1]]:'Corr Trans Val Accs'})
+    
+    lstm_df = pd.read_csv(f'results/{model_type}/lstm_{filename}.csv')
+    lstm_df = lstm_df.rename(columns={column_names[0]:'LSTM Val Accs', [column_names[1]]:'LSTM Trans Val Accs'})
+
+    sns.set_palette(sns.color_palette("BuGn_r"))
+    ax1 = sns.lineplot(data=trans_result_df[['Trans Val Accs', 'Corr Trans Val Accs']], alpha=0.7)
+    sns.set_palette(sns.light_palette("navy", reverse=True))
+    ax2 = sns.lineplot(data=lstm_result_df[['LSTM Val Accs', 'Corr LSTM Val Accs']], alpha=0.7)
+
+
+    plt.xlabel('epochs')
+    plt.ylabel('accuracy')
 # %% [markdown]
 # # Trees
 #
