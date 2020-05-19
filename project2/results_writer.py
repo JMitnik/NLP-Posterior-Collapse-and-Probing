@@ -73,9 +73,9 @@ class ResultsWriter:
     def results_folder_check(self):
         if not os.path.exists('results'):
             os.mkdir('results')
-
-        results_folders = ['POS_probe', 'dep_edge_probe','struct_probe']
-
+        if not os.path.exists('results/images'):
+            os.mkdir('results/images')
+        results_folders = ['POS_probe', 'Edge_probe','Structural_probe']
         for results_folder in results_folders:
             if not os.path.exists(f'results/{results_folder}'):
                 os.mkdir(f'results/{results_folder}')

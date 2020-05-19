@@ -300,10 +300,6 @@ import os
 import itertools
 from collections import Counter
 
-# lm = model  # or `lstm`
-# w2i = tokenizer  # or `vocab`
-# use_sample = True
-
 # Here we decide which language model to use `lm`,
 if config.feature_model_type == 'LSTM':
     print("Important: We will use LSTM as our model representation")
@@ -317,7 +313,7 @@ else:
     model = trans_model
     w2i = trans_tokenizer
 
-use_sample = True
+use_sample = config.uses_sample
 
 # Function that combines the previous functions, and creates 2 tensors for a .conllu file:
 # 1 containing the token representations, and 1 containing the (tokenized) pos_tags.
@@ -489,8 +485,6 @@ import results_writer
 importlib.reload(results_writer)
 from results_writer import ResultsWriter
 
-import seaborn as sns
-
 embedding_size = train_data_X[0].shape[1] # size of the word embedding (either 650 or 768)
 vocab_size = len(train_vocab)#17
 
@@ -529,7 +523,7 @@ valid_ds = Dataset(valid_X, valid_y)
 net: NeuralNetClassifier = NeuralNetClassifier(
     probe,
     callbacks=callbacks,
-    max_epochs=5,#config.pos_probe_train_epoch,
+    max_epochs=config.pos_probe_train_epoch,
     batch_size=config.pos_probe_train_batch_size,
     lr=config.pos_probe_train_lr,
     train_split=predefined_split(valid_ds),
@@ -580,10 +574,19 @@ if config.will_control_task_simple_prob:
         vocab_size
     )
 
+    corrupted_train_X, corrupted_train_y = transform_XY_to_concat_tensors(corrupted_train_data_X, corrupted_train_data_y)
+    corrupted_valid_X, corrupted_valid_y = transform_XY_to_concat_tensors(corrupted_valid_data_X, corrupted_valid_data_y)
+    corrupted_valid_ds = Dataset(corrupted_valid_X, corrupted_valid_y)
+
+    corrupted_probe: nn.Module = SimpleProbe(
+        embedding_size,
+        vocab_size
+    )
+
     corrupted_net: NeuralNetClassifier = NeuralNetClassifier(
         probe,
         callbacks=callbacks,
-        max_epochs=10,#config.pos_probe_train_epoch,
+        max_epochs=config.pos_probe_train_epoch,
         batch_size=config.pos_probe_train_batch_size,
         lr=config.pos_probe_train_lr,
         train_split=predefined_split(corrupted_valid_ds),
@@ -609,7 +612,54 @@ if config.will_control_task_simple_prob:
     pos_probe_results['corrupted_validation_accs'] = corrupted_validation_accs
 
 # Now write results at the end of the POS
-rw.write_results('POS', config.feature_model_type, results=pos_probe_results)
+rw.write_results('POS', 'Transformer', config.feature_model_type, results=pos_probe_results)
+
+# %% Visualize data
+import seaborn as sns
+import pandas as pd
+import matplotlib.pyplot as plt
+
+try:
+    trans_result_df = pd.read_csv('results/POS_probe/Transformer.csv')
+    trans_result_df = trans_result_df.rename(columns={'validation_accs':'Trans Val Accs', 'c_validation_accs':'Corr Trans Val Accs'})
+    ax1 = sns.lineplot(data=trans_result_df[['Trans Val Accs', 'Corr Trans Val Accs']], alpha=0.7)
+except:
+    print("Probably cant read file Transformer.csv")
+
+try:
+    lstm_result_df = pd.read_csv('results/POS_probe/LSTM.csv')
+    lstm_result_df = lstm_result_df.rename(columns={'validation_accs':'LSTM Val Accs', 'c_validation_accs':'Corr LSTM Val Accs'})
+    ax2 = sns.lineplot(data=lstm_result_df[['LSTM Val Accs', 'Corr LSTM Val Accs']], alpha=0.7)
+except:
+    print("Probably cant read the LSTM.csv")
+
+sns.set_palette(sns.color_palette("BuGn_r"))
+sns.set_palette(sns.light_palette("navy", reverse=True))
+
+plt.xlabel('epochs')
+plt.ylabel('accuracy')
+
+# %%
+
+def plot_probe_validation_accs(filename: str, model_type: str, column_names:dict):
+    assert model_type in ['POS', 'Edge', 'Structural'], 'model type needs to be: POS, Edge or Structural.'
+    assert 'val_accs_column' in column_names, 'Missing key(val_accs_column):value(...)'
+    assert 'corrupted_val_accs_column' in column_names, 'Missing key(corrupted_val_accs_column):value(...)'
+
+    transformer_df = pd.read_csv(f'results/{model_type}/trans_{filename}.csv')
+    transformer_df = transformer_df.rename(columns={column_names['val_accs_column']:'Trans Val Accs', [column_names[1]]:'Corr Trans Val Accs'})
+
+    lstm_df = pd.read_csv(f'results/{model_type}/lstm_{filename}.csv')
+    lstm_df = lstm_df.rename(columns={column_names['corrupted_val_accs_column']:'LSTM Val Accs', [column_names[1]]:'LSTM Trans Val Accs'})
+
+    sns.set_palette(sns.color_palette("BuGn_r"))
+    ax1 = sns.lineplot(data=trans_result_df[['Trans Val Accs', 'Corr Trans Val Accs']], alpha=0.7)
+    sns.set_palette(sns.light_palette("navy", reverse=True))
+    ax2 = sns.lineplot(data=lstm_result_df[['LSTM Val Accs', 'Corr LSTM Val Accs']], alpha=0.7)
+
+
+    plt.xlabel('epochs')
+    plt.ylabel('accuracy')
 # %% [markdown]
 # # Trees
 #

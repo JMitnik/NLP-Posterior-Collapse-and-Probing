@@ -8,3 +8,5 @@ project1/__pycache__/tokenizers.cpython-38.pyc
 storage
 *.pt
 project1/runspieter.zip
+project2/results/POS_probe/LSTM.csv
+project2/results/POS_probe/Transformer.csv

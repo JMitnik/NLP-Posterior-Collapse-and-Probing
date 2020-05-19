@@ -17,7 +17,10 @@ class Config:
     feature_model_dimensionality: int = 650
     default_trans_model_type: str = 'distilgpt2'
 
-    # Booleans
+    # Boolean for data
+    uses_sample: bool = True
+
+    # Booleans for model training
     will_train_simple_probe: bool = True
     will_control_task_simple_prob: bool = True
     will_train_structural_probe: bool = True
