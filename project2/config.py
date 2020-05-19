@@ -1,8 +1,9 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
 @dataclass
 class Config:
     # Paths
+    run_label: str = ''
     path_to_pretrained_lstm: str = 'storage/pretrained_lstm_state_dict.pt'
     path_to_data_train: str = 'data/sample/en_ewt-ud-train.conllu'
     path_to_data_valid: str = 'data/sample/en_ewt-ud-dev.conllu'
@@ -11,12 +12,16 @@ class Config:
     # Saved Model Paths
     path_to_POS_Probe: str = lambda version: 'saved_models/POS_Probe_' + str(version)
 
+    # Feature Model types
+    feature_model_type: str = 'LSTM'
+    default_trans_model_type: str = 'distilgpt2'
+
     # Booleans
     will_train_simple_probe: bool = True
     will_control_task_simple_prob: bool = True
     will_train_structural_probe: bool = True
     will_train_dependency_probe: bool = True
-    will_controL_task_dependency_probe: bool = True
+    will_control_task_dependency_probe: bool = True
 
     # POS Probe Model Params
     pos_probe_linear = True
@@ -35,3 +40,7 @@ class Config:
     struct_probe_train_epoch: int = 5
     struct_probe_train_factor: float = 0.5
     struct_probe_train_patience: int = 1
+
+    def to_dict(self):
+        config_dict = asdict(self)
+

@@ -34,8 +34,9 @@
 from config import Config
 
 config: Config = Config(
+    run_label='',
     will_train_simple_probe=True,
-    will_train_structural_probe=False,
+    will_train_structural_probe=True,
     will_train_dependency_probe=True,
     struct_probe_train_epoch=100,
     struct_probe_lr=0.001
@@ -50,9 +51,9 @@ config: Config = Config(
 from transformers import GPT2Model, GPT2Tokenizer
 
 # 🏁
-model = GPT2Model.from_pretrained('distilgpt2')
-tokenizer = GPT2Tokenizer.from_pretrained('distilgpt2')
-
+trans_model_type: str = config.feature_model_type if config.feature_model_type is not 'LSTM' else config.default_trans_model_type
+trans_model = GPT2Model.from_pretrained(trans_model_type)
+trans_tokenizer = GPT2Tokenizer.from_pretrained(trans_model_type)
 
 # Note that some models don't return the hidden states by default.
 # This can be configured by passing `output_hidden_states=True` to the `from_pretrained` method.
@@ -72,11 +73,9 @@ from collections import defaultdict
 from lstm.model import RNNModel
 import torch
 
-
 model_location = config.path_to_pretrained_lstm  # <- point this to the location of the Gulordava .pt file
 lstm = RNNModel('LSTM', 50001, 650, 650, 2)
 lstm.load_state_dict(torch.load(model_location))
-
 
 # This LSTM does not use a Tokenizer like the Transformers, but a Vocab dictionary that maps a token to an id.
 with open('lstm/vocab.txt') as f:
@@ -173,9 +172,10 @@ def fetch_sen_repr_lstm(corpus: List[TokenList], lstm, tokenizer) -> List[Tensor
             representations.append(output)
 
     return representations
+
 ### Transformer FETCH SEN REPR
-def fetch_sen_repr_transformer(corpus: List[TokenList], model, tokenizer) -> List[Tensor]:
-    model.eval() # set model in eval mode
+def fetch_sen_repr_transformer(corpus: List[TokenList], trans_model, tokenizer) -> List[Tensor]:
+    trans_model.eval() # set model in eval mode
     corpus_result = []
 
     for sent in corpus:
@@ -198,7 +198,7 @@ def fetch_sen_repr_transformer(corpus: List[TokenList], model, tokenizer) -> Lis
         # Concatenate the subwords and feed to model
         with torch.no_grad():
             inp = torch.cat(tokenized)
-            out = model(inp)
+            out = trans_model(inp)
 
         h_states = out[0]
 
@@ -258,7 +258,7 @@ def assert_sen_reps(transformer_model, transformer_tokenizer, lstm_model, lstm_t
 
     print('Passed basic checks!')
 
-assert_sen_reps(model, tokenizer, lstm, vocab)
+assert_sen_reps(trans_model, trans_tokenizer, lstm, vocab)
 
 # %%
 # 🏁
@@ -304,28 +304,39 @@ from collections import Counter
 # w2i = tokenizer  # or `vocab`
 # use_sample = True
 
-lm = lstm
-w2i = vocab
+# Here we decide which language model to use `lm`,
+if config.feature_model_type == 'LSTM':
+    print("Important: We will use LSTM as our model representation")
+    model = lstm
+    w2i = vocab
+else:
+    print("Important: We will use {config.feature_model_type} as our model representation")
+    model = trans_model
+    w2i = trans_tokenizer
+
 use_sample = True
 
 # Function that combines the previous functions, and creates 2 tensors for a .conllu file:
 # 1 containing the token representations, and 1 containing the (tokenized) pos_tags.
 
-def create_data(filename: str,
-                lm,
-                w2i: Dict[str, int],
-                pos_vocab=None,
-                corrupted=False,
-                corrupted_pos_tags: Optional[Dict[str, str]] = None):
-    print('getting UDParses')
+def create_data(
+    filename: str,
+    model,
+    w2i: Dict[str, int],
+    pos_vocab=None,
+    corrupted=False,
+    corrupted_pos_tags: Optional[Dict[str, str]] = None
+):
+    print('Parsing the corpus')
     ud_parses = parse_corpus(filename)
-    print('getting pos tags and pos vocab')
+
+    print('Fetching the POS tags')
     pos_tags, pos_vocab = fetch_pos_tags(ud_parses,
                                             pos_vocab=pos_vocab,
                                             corrupted=corrupted,
                                             corrupted_pos_tags=corrupted_pos_tags)
-    print('getting sen reps')
-    sen_reps = fetch_sen_reps(ud_parses, lm, w2i)
+    print(f'Fetching sen reps using {model}')
+    sen_reps = fetch_sen_reps(ud_parses, model, w2i)
 
 
     return sen_reps, pos_tags, pos_vocab
@@ -363,16 +374,15 @@ def create_corrupted_tokens(use_sample: bool) -> Dict[str, str]:
 corrupted_pos_tags: Dict[str, str] = create_corrupted_tokens(use_sample)
 
 # %%
-
 train_data_X, train_data_y, train_vocab = create_data(
     os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-train.conllu'),
-    lm,
+    model,
     w2i
 )
 
-c_train_data_X, c_train_data_y, c_train_vocab = create_data(
+corrupted_train_data_X, corrupted_train_data_y, corrupted_train_vocab = create_data(
     os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-train.conllu'),
-    lm,
+    model,
     w2i,
     corrupted=True,
     corrupted_pos_tags=corrupted_pos_tags
@@ -380,26 +390,19 @@ c_train_data_X, c_train_data_y, c_train_vocab = create_data(
 
 valid_data_X, valid_data_y, _ = create_data(
     os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-dev.conllu'),
-    lm,
+    model,
     w2i,
     pos_vocab=train_vocab
 )
 
-c_valid_data_X, c_valid_data_y, _ = create_data(
+corrupted_valid_data_X, corrupted_valid_data_y, _ = create_data(
     os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-train.conllu'),
-    lm,
+    model,
     w2i,
-    pos_vocab=c_train_vocab,
+    pos_vocab=corrupted_train_vocab,
     corrupted=True,
     corrupted_pos_tags=corrupted_pos_tags
 )
-
-# test_data_X, test_data_y, _ = create_data(
-#     os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-test.conllu'),
-#     lm,
-#     w2i,
-#     pos_vocab=train_vocab
-# )
 
 # %%
 # Utility functions for transforming X and y to appropriate formats
@@ -451,7 +454,6 @@ class SimpleProbe(nn.Module):
         return self.softmax(logits)
 
 class ML1Probe(nn.Module):
-
     def __init__(
         self,
         embedding_dim,
@@ -482,20 +484,22 @@ from skorch.history import History
 import importlib
 import results_writer
 importlib.reload(results_writer)
-from results_writer import Results_Writer
+from results_writer import ResultsWriter
 
 import seaborn as sns
 
-rw = Results_Writer(config)
-
 embedding_size = train_data_X[0].shape[1] # size of the word embedding (either 650 or 768)
 vocab_size = len(train_vocab)#17
+
+rw = ResultsWriter(config)
 
 # Probe
 probe: nn.Module = SimpleProbe(
     embedding_size,
     vocab_size
 )
+
+pos_probe_results = defaultdict(list)
 
 # probe: nn.Module = ML1Probe(
 #     embedding_size,
@@ -506,8 +510,8 @@ train_acc = EpochScoring(scoring='accuracy',
                             on_train=True,
                             name='train_acc',
                             lower_is_better=False)
-early_stopping = EarlyStopping(monitor='valid_acc', 
-                                patience=config.pos_probe_train_patience, 
+early_stopping = EarlyStopping(monitor='valid_acc',
+                                patience=config.pos_probe_train_patience,
                                 lower_is_better=False)
 
 callbacks = [train_acc, early_stopping]
@@ -530,21 +534,26 @@ net: NeuralNetClassifier = NeuralNetClassifier(
     optimizer= torch.optim.Adam,
 )
 
-# helper function to calculate accuracy
+# Helper function to calculate accuracy
 accuracy = lambda preds, targets: sum([1 if pred == target else 0 for pred, target in zip(preds, targets)]) / len(preds)
+valid_acc = None
 
-if config.will_train_simple_probe: # Train a new model with skorch's fit
-    print('Traing POS probe')
+if config.will_train_simple_probe:
+    print('Training POS probe')
     net.fit(train_X, train_y)
     print('Done Training Probe')
 
-net_history = net.history
-valid_predictions = net.predict(valid_X)
-valid_acc = accuracy(valid_predictions, valid_y)
-print(f'Validation Accuracy: {valid_acc:.4f}')
+    # Get accuracy score
+    valid_predictions = net.predict(valid_X)
+    valid_acc = accuracy(valid_predictions, valid_y)
+    print(f'Validation Accuracy: {valid_acc:.4f}')
 
-validation_losses = net_history[:,'valid_loss']
-validation_accs = net_history[:, 'valid_acc']
+    # Get validation losses / accuracies from skorch's history
+    net_history = net.history
+    validation_losses = net_history[:,'valid_loss']
+    validation_accs = net_history[:, 'valid_acc']
+    pos_probe_results['validation_losses'] = validation_losses
+    pos_probe_results['validation_accs'] = validation_accs
 
 
 # %%
@@ -558,52 +567,46 @@ validation_accs = net_history[:, 'valid_acc']
 
 
 # %% Train a corrupted prob classifier
+if config.will_control_task_simple_prob:
+    corrupted_train_X, corrupted_train_y = transform_XY_to_concat_tensors(corrupted_train_data_X, corrupted_train_data_y)
+    corrupted_valid_X, corrupted_valid_y = transform_XY_to_concat_tensors(corrupted_valid_data_X, corrupted_valid_data_y)
+    corrupted_valid_ds = Dataset(corrupted_valid_X, corrupted_valid_y)
 
-c_train_X, c_train_y = transform_XY_to_concat_tensors(c_train_data_X, c_train_data_y)
-c_valid_X, c_valid_y = transform_XY_to_concat_tensors(c_valid_data_X, c_valid_data_y)
-c_valid_ds = Dataset(c_valid_X, c_valid_y)
+    corrupted_probe: nn.Module = SimpleProbe(
+        embedding_size,
+        vocab_size
+    )
 
-c_probe: nn.Module = SimpleProbe(
-    embedding_size,
-    vocab_size
-)
-# c_probe: nn.Module = ML1Probe(
-#     embedding_size,
-#     vocab_size
-# )
+    corrupted_net: NeuralNetClassifier = NeuralNetClassifier(
+        probe,
+        callbacks=callbacks,
+        max_epochs=10,#config.pos_probe_train_epoch,
+        batch_size=config.pos_probe_train_batch_size,
+        lr=config.pos_probe_train_lr,
+        train_split=predefined_split(corrupted_valid_ds),
+        iterator_train__shuffle=True,
+        optimizer= torch.optim.Adam,
+    )
 
-corrupted_net: NeuralNetClassifier = NeuralNetClassifier(
-    probe,
-    callbacks=callbacks,
-    max_epochs=10,#config.pos_probe_train_epoch,
-    batch_size=config.pos_probe_train_batch_size,
-    lr=config.pos_probe_train_lr,
-    train_split=predefined_split(c_valid_ds),
-    iterator_train__shuffle=True,
-    optimizer= torch.optim.Adam,
-)
+    corrupted_net.fit(corrupted_train_X, corrupted_train_y)
 
-corrupted_net.fit(c_train_X, c_train_y)
+    corrupted_valid_preds = corrupted_net.predict(corrupted_valid_X)
+    corrupted_valid_acc = accuracy(corrupted_valid_preds, corrupted_valid_y)
+    print(f'Corrupted Validation Accuracy: {corrupted_valid_acc:.4f}')
+    corrupted_total_epochs = len(corrupted_net.history)
 
-c_valid_preds = corrupted_net.predict(c_valid_X)
-c_valid_acc = accuracy(c_valid_preds, c_valid_y)
-print(f'Corrupted Validation Accuracy: {c_valid_acc:.4f}')
-c_total_epochs = len(corrupted_net.history)
-# %%
-valid_selectivity = valid_acc - c_valid_acc
-print(f'Validation Selectivity: {valid_selectivity:.4f}')
+    if valid_acc is not None:
+        valid_selectivity = valid_acc - corrupted_valid_acc
+        print(f'Validation Selectivity: {valid_selectivity:.4f}')
 
-c_history = corrupted_net.history
-c_validation_losses = c_history[:,'valid_loss']
-c_validation_accs = c_history[:,'valid_acc']
+    corrupted_history = corrupted_net.history
+    corrupted_validation_losses = corrupted_history[:,'valid_loss']
+    corrupted_validation_accs = corrupted_history[:,'valid_acc']
+    pos_probe_results['corrupted_validation_losses'] = corrupted_validation_losses
+    pos_probe_results['corrupted_validation_accs'] = corrupted_validation_accs
 
-
-results = {'validation_losses':validation_losses,
-            'validation_accs':validation_accs,
-            'c_validation_losses': c_validation_losses,
-            'c_validation_accs': c_validation_accs}
-
-rw.write_results('POS', results=results)
+# Now write results at the end of the POS
+rw.write_results('POS', str(model), results=pos_probe_results)
 # %% [markdown]
 # # Trees
 #
@@ -1007,8 +1010,9 @@ def create_gold_parent_distance_idxs_only(
 # create_gold_parent_distance_idxs_only(sample_corpus, True)
 
 # %%
-def init_corpus(path, model=model, concat=False, cutoff=None, use_dependencies=False, corrupted=False, dep_vocab=None):
-    """ Initialises the data of a corpus.
+def init_corpus(path, model=model, tokenizer=w2i, concat=False, cutoff=None, use_dependencies=False, corrupted=False, dep_vocab=None):
+    """
+    Initialises the data of a corpus.
 
     Parameters
     ----------
@@ -1105,6 +1109,9 @@ def train(
     lr: float = config.struct_probe_lr
     epochs: int = config.struct_probe_train_epoch
 
+    valid_losses = []
+    valid_uuas_scores = []
+
     probe: nn.Module = StructuralProbe(emb_dim, rank)
 
     # Training tools
@@ -1138,16 +1145,25 @@ def train(
         # Calculate validation scores
         # TODO: Double-check that the UUAS works
         valid_loss, valid_uuas = evaluate_probe(probe, valid_dataloader)
+        valid_losses.append(valid_loss)
+        valid_uuas_scores.append(valid_uuas)
 
         # TODO: Optional Param-tune scheduler (?)
 #         scheduler.step(valid_loss)
 
-    return probe
+    return probe, valid_losses, valid_uuas_scores
 
 if config.will_train_structural_probe:
     train_dataloader = init_dataloader_sequential(config.path_to_data_train, config.struct_probe_train_batch_size)
     valid_dataloader = init_dataloader_sequential('data/sample/en_ewt-ud-dev.conllu', 1)
-    train(train_dataloader, valid_dataloader, config)
+    trained_probe, valid_losses, valid_uuas_scores = train(train_dataloader, valid_dataloader, config)
+
+    struct_probe_results = {
+        'probe_valid_losses': valid_losses,
+        'probe_valid_uuas_scores': valid_uuas_scores
+    }
+
+    rw.write_results('struct_probe', str(model), '', struct_probe_results)
 
 # %% [markdown]
 # # Structural Probing Control Task
@@ -1214,9 +1230,6 @@ class TwoWordBilinearLabelProbe(nn.Module):
 
 
 # %%
-sample_tree = sample_sent.to_tree()
-sample_ete_tree = tokentree_to_ete(sample_tree)
-
 from torch.nn import NLLLoss
 from sklearn.metrics import accuracy_score
 
@@ -1257,7 +1270,7 @@ def evaluate_dep_probe(probe, data_loader):
     print(f"Average evaluation loss score is {loss_score}")
     print(f"Average evaluation accuracy score is {acc_score}")
 
-    return loss_score
+    return loss_score, acc_score
 
 
 def train_dep_parsing(
@@ -1280,6 +1293,9 @@ def train_dep_parsing(
     optimizer = optim.Adam(probe.parameters(), lr=lr)
 #     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5,patience=1)
     loss_function = NLLLoss(reduction='none')
+
+    valid_losses = []
+    acc_scores = []
 
     for epoch in range(epochs):
         print(f"\n---- EPOCH {epoch + 1} ---- \n")
@@ -1310,8 +1326,9 @@ def train_dep_parsing(
             batch_loss.backward()
             optimizer.step()
 
-        valid_loss = evaluate_dep_probe(probe, valid_dataloader)
-    return probe
+        valid_loss, acc_score = evaluate_dep_probe(probe, valid_dataloader)
+
+    return probe, valid_losses, acc_scores
 
 
 # %%
@@ -1337,30 +1354,37 @@ def create_corrupted_dep_vocab(use_sample: bool) -> Dict[str, str]:
 
     return corrupted_word_type
 
- # Get out corrupted pos tokens for each word type
+# Start the probing trainings
+dep_probe_results = defaultdict(list)
+
+# Get out corrupted pos tokens for each word type
 corrupted_dep_vocab: Dict[str, str] = create_corrupted_dep_vocab(use_sample)
 
 # Prep dataset yet again
-# if co
-print("Prepping datasets for Dependency parsing")
-# train_data_raw = init_corpus(config.path_to_data_train, use_dependencies=True, dep_vocab=corrupted_dep_vocab)
-# train_dataset = ProbingDataset(train_data_raw[1], train_data_raw[0])
-# train_dataloader = DataLoader(train_dataset, batch_size=8, collate_fn=custom_collate_fn)
+if config.will_train_dependency_probe:
+    print("Prepping datasets for Dependency parsing")
+    train_data_raw = init_corpus(config.path_to_data_train, use_dependencies=True, dep_vocab=corrupted_dep_vocab)
+    train_dataset = ProbingDataset(train_data_raw[1], train_data_raw[0])
+    train_dataloader = DataLoader(train_dataset, batch_size=8, collate_fn=custom_collate_fn)
 
-# valid_data_raw = init_corpus(config.path_to_data_valid, use_dependencies=True, dep_vocab=corrupted_dep_vocab)
-# valid_dataset = ProbingDataset(valid_data_raw[1], valid_data_raw[0])
-# valid_dataloader = DataLoader(valid_dataset, batch_size=8, collate_fn=custom_collate_fn)
+    valid_data_raw = init_corpus(config.path_to_data_valid, use_dependencies=True, dep_vocab=corrupted_dep_vocab)
+    valid_dataset = ProbingDataset(valid_data_raw[1], valid_data_raw[0])
+    valid_dataloader = DataLoader(valid_dataset, batch_size=8, collate_fn=custom_collate_fn)
 
-# print("Starting training for dependency parsing")
-# train_dep_parsing(
-#     train_dataloader,
-#     valid_dataloader,
-#     config,
-# )
+    print("Starting training for dependency parsing")
+    dep_trained_probe, dep_valid_losses, dep_valid_acc = train_dep_parsing(
+        train_dataloader,
+        valid_dataloader,
+        config,
+    )
+
+    # We store the results
+    dep_probe_results['valid_losses'] = dep_valid_losses
+    dep_probe_results['valid_acc'] = dep_valid_acc
 
 # %%
 # Control task time
-if config.will_controL_task_dependency_probe:
+if config.will_control_task_dependency_probe:
     print("Prepping datasets for Dependency parsing - Control Task")
     train_data_raw = init_corpus(
         config.path_to_data_train,
@@ -1381,8 +1405,13 @@ if config.will_controL_task_dependency_probe:
     valid_dataloader = DataLoader(valid_dataset, batch_size=1, collate_fn=custom_collate_fn)
 
     print("Starting training for Dependency parsing - Control Task")
-    train_dep_parsing(
+    corrupted_dep_trained_probe, corrupted_dep_valid_losses, corrupted_dep_valid_acc = train_dep_parsing(
         train_dataloader,
         valid_dataloader,
         config
     )
+
+    dep_probe_results['corrupted_valid_losses'] = corrupted_dep_valid_losses
+    dep_probe_results['corrupted_dep_valid_acc'] = corrupted_dep_valid_acc
+
+rw.write_results('dep_edge', str(model), '', dep_probe_results)
