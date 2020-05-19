@@ -627,14 +627,16 @@ plt.ylabel('accuracy')
 
 # %%
 
-def plot_probe_validation_accs(filename: str, model_type: str, column_names:[str]=['validation_accs', 'corrupted_validation_accs']):
+def plot_probe_validation_accs(filename: str, model_type: str, column_names:dict):
     assert model_type in ['POS', 'Edge', 'Structural'], 'model type needs to be: POS, Edge or Structural.'
-    
+    assert 'val_accs_column' in column_names, 'Missing key(val_accs_column):value(...)'
+    assert 'corrupted_val_accs_column' in column_names, 'Missing key(corrupted_val_accs_column):value(...)'
+
     transformer_df = pd.read_csv(f'results/{model_type}/trans_{filename}.csv')
-    transformer_df = transformer_df.rename(columns={column_names[0]:'Trans Val Accs', [column_names[1]]:'Corr Trans Val Accs'})
+    transformer_df = transformer_df.rename(columns={column_names['val_accs_column']:'Trans Val Accs', [column_names[1]]:'Corr Trans Val Accs'})
     
     lstm_df = pd.read_csv(f'results/{model_type}/lstm_{filename}.csv')
-    lstm_df = lstm_df.rename(columns={column_names[0]:'LSTM Val Accs', [column_names[1]]:'LSTM Trans Val Accs'})
+    lstm_df = lstm_df.rename(columns={column_names['corrupted_val_accs_column']:'LSTM Val Accs', [column_names[1]]:'LSTM Trans Val Accs'})
 
     sns.set_palette(sns.color_palette("BuGn_r"))
     ax1 = sns.lineplot(data=trans_result_df[['Trans Val Accs', 'Corr Trans Val Accs']], alpha=0.7)
