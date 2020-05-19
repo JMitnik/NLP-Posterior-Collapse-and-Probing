@@ -35,6 +35,8 @@ from config import Config
 
 config: Config = Config(
     will_train_simple_probe=True,
+    will_train_structural_probe=False,
+    will_train_dependency_probe=True,
     struct_probe_train_epoch=100,
     struct_probe_lr=0.001
 )
@@ -262,7 +264,7 @@ assert_sen_reps(model, tokenizer, lstm, vocab)
 # 🏁
 from typing import Tuple
 
-def fetch_pos_tags(ud_parses: List[TokenList], 
+def fetch_pos_tags(ud_parses: List[TokenList],
                     pos_vocab: Optional[DefaultDict[str, int]] = None,
                     corrupted=False,
                     corrupted_pos_tags: Optional[Dict[str, str]] = None)-> Tuple[List[Tensor], DefaultDict]:
@@ -275,10 +277,8 @@ def fetch_pos_tags(ud_parses: List[TokenList],
         all_pos_tokens = set([pos for sent in ud_parses for pos in get_pos_from_sent(sent)])
         print('get all pos2i')
         pos2i = {'<pad>': 0, '<unk>': 1, **{pos.strip(): i + 2 for i, pos in enumerate(all_pos_tokens)}}
-        print(pos2i)
         pos_vocab = defaultdict(lambda: pos2i["<unk>"])
         pos_vocab.update(pos2i)
-        print(pos_vocab)
     pos_tokens_result: List[Tensor] = []
 
     sent: TokenList
@@ -311,22 +311,22 @@ use_sample = True
 # Function that combines the previous functions, and creates 2 tensors for a .conllu file:
 # 1 containing the token representations, and 1 containing the (tokenized) pos_tags.
 
-def create_data(filename: str, 
-                lm, 
-                w2i: Dict[str, int], 
-                pos_vocab=None, 
+def create_data(filename: str,
+                lm,
+                w2i: Dict[str, int],
+                pos_vocab=None,
                 corrupted=False,
                 corrupted_pos_tags: Optional[Dict[str, str]] = None):
     print('getting UDParses')
     ud_parses = parse_corpus(filename)
     print('getting pos tags and pos vocab')
-    pos_tags, pos_vocab = fetch_pos_tags(ud_parses, 
-                                            pos_vocab=pos_vocab, 
-                                            corrupted=corrupted, 
+    pos_tags, pos_vocab = fetch_pos_tags(ud_parses,
+                                            pos_vocab=pos_vocab,
+                                            corrupted=corrupted,
                                             corrupted_pos_tags=corrupted_pos_tags)
     print('getting sen reps')
     sen_reps = fetch_sen_reps(ud_parses, lm, w2i)
-    
+
 
     return sen_reps, pos_tags, pos_vocab
 
@@ -341,24 +341,24 @@ def create_corrupted_tokens(use_sample: bool) -> Dict[str, str]:
         filename = os.path.join('data', 'sample' if use_sample else '', f'en_ewt-ud-{set_type}.conllu')
 
         ud_parses += (parse_corpus(filename))
- 
+
     all_pos_tokens = list(set([pos for sent in ud_parses for pos in get_pos_from_sent(sent)]))
     all_pos_tokens = ['<pad>', '<unk>', *all_pos_tokens]
 
     possible_targets_distr = Categorical(torch.tensor([1/len(all_pos_tokens) for _ in range(len(all_pos_tokens))]))
-    
+
     corrupted_word_type = defaultdict(lambda: "UNK")
     # Get a corrupted POS tag for each word
     for sentence in ud_parses:
         for token in sentence:
-                     
+
             corrupted_pos_tag = all_pos_tokens[possible_targets_distr.sample()]
 
             if token['form'] not in corrupted_word_type:
                 corrupted_word_type[token['form']] = corrupted_pos_tag
-    
+
     return corrupted_word_type
- 
+
  # Get out corrupted pos tokens for each word type
 corrupted_pos_tags: Dict[str, str] = create_corrupted_tokens(use_sample)
 
@@ -502,7 +502,6 @@ early_stopping = EarlyStopping(monitor='valid_acc', patience=4, lower_is_better=
 
 callbacks = [train_acc, early_stopping]
 
-
 # Concatenate all the tensors
 train_X, train_y = transform_XY_to_concat_tensors(train_data_X, train_data_y)
 valid_X, valid_y = transform_XY_to_concat_tensors(valid_data_X, valid_data_y)
@@ -542,7 +541,7 @@ print(f'Validation Accuracy: {valid_acc:.4f}')
 # A quick test to check the accuracy of the probe
 #concat_test_X, concat_test_Y = transform_XY_to_concat_tensors(test_x, test_y)
 # import numpy as np
-# 
+#
 # test_X, test_y = transform_XY_to_concat_tensors(test_data_X, test_data_y)
 
 # predictions = net.predict(test_X)
@@ -642,12 +641,12 @@ def tokentree_to_ete(tokentree):
 # %%
 # Let's check if it works!
 # We can read in a corpus using the code that was already provided, and convert it to an ete3 Tree.
-corpus = parse_corpus('data/sample/en_ewt-ud-train.conllu')
-sent = corpus[0]
-tokentree = sent.to_tree()
+# corpus = parse_corpus('data/sample/en_ewt-ud-train.conllu')
+# sent = corpus[0]
+# tokentree = sent.to_tree()
 
-ete3_tree = tokentree_to_ete(tokentree)
-print(ete3_tree)
+# ete3_tree = tokentree_to_ete(tokentree)
+# print(ete3_tree)
 
 
 # %% [markdown]
@@ -717,22 +716,22 @@ def create_mst(distances):
 # If your addition to the `create_gold_distances` method has been correct, you should be able to run the following snippet. This then shows you the original parse tree, the distances between the nodes, and the MST that is retrieved from these distances. Can you spot the edges in the MST matrix that correspond to the edges in the parse tree?
 
 # %%
-item = corpus[5]
-tokentree = item.to_tree()
-ete3_tree = tokentree_to_ete(tokentree)
-print(ete3_tree, '\n')
+# item = corpus[5]
+# tokentree = item.to_tree()
+# ete3_tree = tokentree_to_ete(tokentree)
+# print(ete3_tree, '\n')
 
-gold_distance = create_gold_distances(corpus[5:6])[0]
-print(gold_distance, '\n')
+# gold_distance = create_gold_distances(corpus[5:6])[0]
+# print(gold_distance, '\n')
 
-mst = create_mst(gold_distance)
-print(mst)
+# mst = create_mst(gold_distance)
+# print(mst)
 
 # %%
 # Utility cell to play around with the values
-all_edges = list(zip(mst.nonzero()[0], mst.nonzero()[1]))
-all_edges = set(tuple(frozenset(sub)) for sub in set(all_edges))
-all_edges
+# all_edges = list(zip(mst.nonzero()[0], mst.nonzero()[1]))
+# all_edges = set(tuple(frozenset(sub)) for sub in set(all_edges))
+# all_edges
 
 # %% [markdown]
 # Now that we are able to map edge distances back to parse trees, we can create code for our quantitative evaluation. For this we will use the Undirected Unlabeled Attachment Score (UUAS), which is expressed as:
@@ -780,8 +779,6 @@ def calc_uuas(pred_distances, gold_distances):
     uuas = nr_correct_edges / len(gold_edges)
 
     return uuas
-
-calc_uuas(gold_distance, gold_distance)
 
 # %% [markdown]
 # # Structural Probes
@@ -901,7 +898,83 @@ def custom_collate_fn(items: List[Tensor]) -> List[Tensor]:
     return items
 
 # %%
-def init_corpus(path, concat=False, cutoff=None):
+# Utility functions for dependency parsing
+
+get_parent_children_combo_from_tree = lambda tree: [
+    (i.up.name, (i.name))
+    for i in tokentree_to_ete(tree).search_nodes()
+    if i.up is not None
+]
+
+map_pc_combo_to_parent_edges = lambda id_idx_map, tuple_list: [(id_idx_map[int(i[0])], id_idx_map[int(i[1])]) for i in tuple_list]
+
+def create_gold_parent_distance_edges(corpus: List[TokenList]):
+    """
+    Assigns for each sentence, a 1 for child (row) to parent (column).
+    """
+    all_edges: List[Tensor] = []
+
+    for sent in corpus:
+        sent_tree = sent.to_tree()
+        sent_id2idx = {i['id']: idx for idx, i in enumerate(sent)}
+
+        # Calculate tuples of (parent, child), and then map their ID to their respective indices
+        parent_child_tuples = get_parent_children_combo_from_tree(sent_tree)
+        parent_child_tuples = map_pc_combo_to_parent_edges(sent_id2idx, parent_child_tuples)
+
+        # Initialize our matrix
+        sen_len = len(sent)
+        distances = torch.zeros((sen_len, sen_len))
+
+        for parent_edge in parent_child_tuples:
+            parent_idx, child_idx = parent_edge
+            distances[child_idx, parent_idx] = 1
+
+        all_edges.append(distances)
+
+    return all_edges
+
+def create_gold_parent_distance_idxs_only(corpus: List[TokenList]) -> List[Tuple[Tensor, int]]:
+    """
+    Assigns for each sentence the index of the parent node.
+    If node is -1, then that node has no parent (should be ignored).
+
+    Input:
+        - corpus: list of TokenLists
+    Output:
+        List of tuple(gold indices of parent, index of root)
+    """
+    all_edges: List[Tuple[Tensor, int]] = []
+
+    print(len(corpus))
+
+    for sent in corpus:
+        sent_tree = sent.to_tree()
+        sent_id2idx = {i['id']: idx for idx, i in enumerate(sent)}
+
+        # Calculate tuples of (parent, child), and then map their ID to their respective indices
+        parent_child_tuples = get_parent_children_combo_from_tree(sent_tree)
+        parent_child_tuples = map_pc_combo_to_parent_edges(sent_id2idx, parent_child_tuples)
+
+        # Initialize our matrix
+        sen_len = len(sent)
+        edges = torch.zeros((sen_len))
+
+        root_idx = sent_id2idx[sent_tree.token['id']]
+
+        # For each edge, assign in the corresponding index the parent index, and -1 for root
+        for parent_edge in parent_child_tuples:
+            parent_idx, child_idx = parent_edge
+            edges[child_idx] = parent_idx
+            edges[root_idx] = -1
+
+        all_edges.append((edges, root_idx))
+
+    return all_edges
+
+
+# %%
+def init_corpus(path, model=model, concat=False, cutoff=None, use_dependencies=False):
     """ Initialises the data of a corpus.
 
     Parameters
@@ -922,7 +995,10 @@ def init_corpus(path, concat=False, cutoff=None):
 #     max_length_size = embs.shape[0]
 
 #     embs = embs.reshape(corpus_size, max_length_size, -1)
-    gold_distances = create_gold_distances(corpus)
+    if not use_dependencies:
+        gold_distances = create_gold_distances(corpus)
+    else:
+        gold_distances = create_gold_parent_distance_idxs_only(corpus)
 
     return gold_distances, embs
 
@@ -939,8 +1015,6 @@ def init_dataloader_sequential(path: str, batch_size: int, cutoff=None) -> DataL
 
 # %%
 # Prep data-loaders
-train_dataloader = init_dataloader_sequential(config.path_to_data_train, config.struct_probe_train_batch_size)
-valid_dataloader = init_dataloader_sequential('data/sample/en_ewt-ud-dev.conllu', 1)
 
 # %%
 from torch import optim
@@ -1034,6 +1108,202 @@ def train(
 
     return probe
 
-train(train_dataloader, valid_dataloader, config)
+if config.will_train_structural_probe:
+    train_dataloader = init_dataloader_sequential(config.path_to_data_train, config.struct_probe_train_batch_size)
+    valid_dataloader = init_dataloader_sequential('data/sample/en_ewt-ud-dev.conllu', 1)
+    train(train_dataloader, valid_dataloader, config)
+
+# %% [markdown]
+# # Structural Probing Control Task
 
 # %%
+
+class TwoWordBilinearLabelProbe(nn.Module):
+  """ Computes a bilinear function of pairs of vectors.
+  For a batch of sentences, computes all n^2 pairs of scores
+  for each sentence in the batch.
+  """
+  def __init__(
+      self,
+      max_rank: int,
+      feature_dim: int,
+      dropout_p: float
+  ):
+    super().__init__()
+    self.maximum_rank = max_rank
+    self.feature_dim = feature_dim
+    self.proj_L = nn.Parameter(data = torch.zeros(self.feature_dim, self.maximum_rank), requires_grad=True)
+    self.proj_R = nn.Parameter(data = torch.zeros(self.maximum_rank, self.feature_dim), requires_grad=True)
+    self.bias = nn.Parameter(data=torch.zeros(1), requires_grad=True)
+
+    nn.init.uniform_(self.proj_L, -0.05, 0.05)
+    nn.init.uniform_(self.proj_R, -0.05, 0.05)
+    nn.init.uniform_(self.bias, -0.05, 0.05)
+
+    self.dropout = nn.Dropout(p=dropout_p)
+    self.softmax = nn.LogSoftmax(2)
+
+  def forward(self, batch):
+    """ Computes all n^2 pairs of attachment scores
+    for each sentence in a batch.
+    Computes h_i^TAh_j for all i,j
+    where A = LR, L in R^{model_dim x maximum_rank}; R in R^{maximum_rank x model_rank}
+    hence A is rank-constrained to maximum_rank.
+    Args:
+      batch: a batch of word representations of the shape
+        (batch_size, max_seq_len, representation_dim)
+    Returns:
+      A tensor of scores of shape (batch_size, max_seq_len, max_seq_len)
+    """
+    batchlen, seqlen, rank = batch.size()
+    batch = self.dropout(batch)
+    # A/Proj = L * R
+    proj = torch.mm(self.proj_L, self.proj_R)
+
+    # Expand matrix to allow another instance of all cols/rows
+    batch_square = batch.unsqueeze(2).expand(batchlen, seqlen, seqlen, rank)
+
+    # Add another instance of seqlen (do it on position 1 for some reason)
+    # => change view so that it becomes rows of 'rank/hidden-dim'
+    batch_transposed = batch.unsqueeze(1).expand(batchlen, seqlen, seqlen, rank).contiguous().view(batchlen*seqlen*seqlen,rank,1)
+
+    # Multiply the `batch_square` matrix with the projection
+    psd_transformed = torch.matmul(batch_square.contiguous(), proj).view(batchlen*seqlen*seqlen,1, rank)
+
+    # Multiple resulting matrix `psd_transform` with each j
+    logits = (torch.bmm(psd_transformed, batch_transposed) + self.bias).view(batchlen, seqlen, seqlen)
+
+    probs = self.softmax(logits)
+    return probs
+
+
+# %%
+sample_tree = sample_sent.to_tree()
+sample_ete_tree = tokentree_to_ete(sample_tree)
+
+from torch.nn import NLLLoss
+from sklearn.metrics import accuracy_score
+
+def evaluate_dep_probe(probe, data_loader):
+    loss_scores: List[Tensor] = []
+    acc_scores: List[Tensor] = []
+    loss_score = 0
+
+    probe.eval()
+    loss_function = NLLLoss()
+
+    with torch.no_grad():
+        for idx, batch_item in enumerate(data_loader):
+            for item in batch_item:
+                valid_X, valid_y_tup = item
+
+                valid_X = valid_X.unsqueeze(0)
+                valid_y, _ = valid_y_tup
+
+                pred = probe(valid_X).squeeze()
+                           # Sentences with strange tokens, we ignore for the moment
+                if len(valid_y) < 2:
+                    print(f"Encountered: null sentence at idx {idx}")
+                    continue
+
+                masked_idx = valid_y != -1
+                masked_pred = pred[masked_idx]
+                masked_y = valid_y[masked_idx].long()
+
+                item_loss = loss_function(masked_pred, masked_y)
+                acc = accuracy_score(masked_y, masked_pred.argmax(1))
+                loss_scores.append(torch.tensor(item_loss.item()))
+                acc_scores.append(torch.tensor(acc))
+
+    loss_score = torch.mean(torch.stack(loss_scores))
+    acc_score = torch.mean(torch.stack(acc_scores))
+
+    print(f"Average evaluation loss score is {loss_score}")
+    print(f"Average evaluation accuracy score is {acc_score}")
+
+    return loss_score
+
+
+def train_dep_parsing(
+    train_dataloader: DataLoader,
+    valid_dataloader: DataLoader,
+    config: Config
+):
+    emb_dim: int = config.struct_probe_emb_dim
+    rank: int = config.struct_probe_rank
+    lr: float = config.struct_probe_lr
+    epochs: int = config.struct_probe_train_epoch
+
+    probe: nn.Module = TwoWordBilinearLabelProbe(
+        max_rank=rank,
+        feature_dim=emb_dim,
+        dropout_p=0.2
+    )
+
+    # Training tools
+    optimizer = optim.Adam(probe.parameters(), lr=lr)
+#     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5,patience=1)
+    loss_function = NLLLoss(reduction='none')
+
+    for epoch in range(epochs):
+        print(f"\n---- EPOCH {epoch + 1} ---- \n")
+
+        for train_batch in train_dataloader:
+            # Setup
+            probe.train()
+            optimizer.zero_grad()
+
+            batch_loss = torch.tensor([0.0])
+
+            for train_item in train_batch:
+                train_X, train_y_tup = train_item
+
+                train_X = train_X.unsqueeze(0)
+                train_y, _ = train_y_tup
+
+                pred = probe(train_X).squeeze()
+
+                masked_idx = train_y != -1
+                masked_pred = pred[masked_idx]
+                masked_y = train_y[masked_idx].long()
+
+                item_loss = loss_function(masked_pred, masked_y)
+                item_loss = item_loss.mean()
+                batch_loss += item_loss
+
+            batch_loss.backward()
+            optimizer.step()
+
+        valid_loss = evaluate_dep_probe(probe, valid_dataloader)
+    return probe
+
+
+# %%
+# Prep dataset yet again
+print("Prepping datasets for Dependency parsing")
+train_data_raw = init_corpus(config.path_to_data_train, use_dependencies=True)
+train_dataset = ProbingDataset(train_data_raw[1], train_data_raw[0])
+train_dataloader = DataLoader(train_dataset, batch_size=8, collate_fn=custom_collate_fn)
+
+valid_data_raw = init_corpus(config.path_to_data_valid, use_dependencies=True)
+valid_dataset = ProbingDataset(valid_data_raw[1], valid_data_raw[0])
+valid_dataloader = DataLoader(valid_dataset, batch_size=8, collate_fn=custom_collate_fn)
+
+print("Starting training for dependency parsing")
+train_dep_parsing(
+    train_dataloader,
+    valid_dataloader,
+    config
+)
+
+# %%
+# Sample experimentation with single
+# sample_probe = TwoWordBilinearLabelProbe(64, 768, 0.5)
+# sample_X = train_data_raw[1][0].unsqueeze(0)
+# sample_Y, sample_Y_root_idx = train_data_raw[0][0]
+# sample_pred = sample_probe(sample_X).squeeze()
+
+# # Mask idx of the root
+# masked_idx = sample_Y != -1
+# masked_pred = sample_pred[masked_idx]
+# masked_y = sample_Y[masked_idx].long()
