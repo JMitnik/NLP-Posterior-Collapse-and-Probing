@@ -494,9 +494,9 @@ probe: nn.Module = SimpleProbe(
 #     vocab_size
 # )
 
-train_acc = EpochScoring(scoring='accuracy', 
-                            on_train=True, 
-                            name='train_acc', 
+train_acc = EpochScoring(scoring='accuracy',
+                            on_train=True,
+                            name='train_acc',
                             lower_is_better=False)
 early_stopping = EarlyStopping(monitor='valid_acc', patience=4, lower_is_better=False)
 
@@ -531,7 +531,7 @@ if config.will_train_simple_probe: # Train a new model with skorch's fit
 total_epochs = len(net.history)
 valid_predictions = net.predict(valid_X)
 valid_acc = accuracy(valid_predictions, valid_y)
-print(f'Validation Accuracy: {valid_acc:.4f}')  
+print(f'Validation Accuracy: {valid_acc:.4f}')
 
 # Load the best version of a model, either just trained or saved
 # net.initialize()
@@ -577,7 +577,7 @@ corrupted_net.fit(c_train_X, c_train_y)
 
 c_valid_preds = corrupted_net.predict(c_valid_X)
 c_valid_acc = accuracy(c_valid_preds, c_valid_y)
-print(f'Corrupted Validation Accuracy: {c_valid_acc:.4f}') 
+print(f'Corrupted Validation Accuracy: {c_valid_acc:.4f}')
 c_total_epochs = len(corrupted_net.history)
 # %%
 valid_selectivity = valid_acc - c_valid_acc
@@ -899,6 +899,7 @@ def custom_collate_fn(items: List[Tensor]) -> List[Tensor]:
 
 # %%
 # Utility functions for dependency parsing
+import numpy as np
 
 get_parent_children_combo_from_tree = lambda tree: [
     (i.up.name, (i.name))
@@ -934,7 +935,11 @@ def create_gold_parent_distance_edges(corpus: List[TokenList]):
 
     return all_edges
 
-def create_gold_parent_distance_idxs_only(corpus: List[TokenList]) -> List[Tuple[Tensor, int]]:
+def create_gold_parent_distance_idxs_only(
+    corpus: List[TokenList],
+    corrupted: bool = False,
+    vocab: Dict[str, int] = None
+) -> List[Tuple[Tensor, int]]:
     """
     Assigns for each sentence the index of the parent node.
     If node is -1, then that node has no parent (should be ignored).
@@ -965,16 +970,25 @@ def create_gold_parent_distance_idxs_only(corpus: List[TokenList]) -> List[Tuple
         # For each edge, assign in the corresponding index the parent index, and -1 for root
         for parent_edge in parent_child_tuples:
             parent_idx, child_idx = parent_edge
-            edges[child_idx] = parent_idx
+
+            if corrupted:
+                corrupted_choices = [0, child_idx, sen_len]
+                child_token = sent[child_idx]['form']
+                corrupted_choice_idx = vocab[child_token]
+                edges[child_idx] = corrupted_choices[corrupted_choice_idx]
+            else:
+                edges[child_idx] = parent_idx
+
             edges[root_idx] = -1
 
         all_edges.append((edges, root_idx))
 
     return all_edges
 
+# create_gold_parent_distance_idxs_only(sample_corpus, True)
 
 # %%
-def init_corpus(path, model=model, concat=False, cutoff=None, use_dependencies=False):
+def init_corpus(path, model=model, concat=False, cutoff=None, use_dependencies=False, corrupted=False, dep_vocab=None):
     """ Initialises the data of a corpus.
 
     Parameters
@@ -998,7 +1012,10 @@ def init_corpus(path, model=model, concat=False, cutoff=None, use_dependencies=F
     if not use_dependencies:
         gold_distances = create_gold_distances(corpus)
     else:
-        gold_distances = create_gold_parent_distance_idxs_only(corpus)
+        if dep_vocab is None:
+            raise Exception('Need to pass `dep_vocab` as well!')
+
+        gold_distances = create_gold_parent_distance_idxs_only(corpus, corrupted, dep_vocab)
 
     return gold_distances, embs
 
@@ -1279,31 +1296,74 @@ def train_dep_parsing(
 
 
 # %%
+
+def create_corrupted_dep_vocab(use_sample: bool) -> Dict[str, str]:
+    # Get sentences from all data sets
+    ud_parses = []
+    for set_type in ['train', 'dev', 'test']:
+        filename = os.path.join('data', 'sample' if use_sample else '', f'en_ewt-ud-{set_type}.conllu')
+
+        ud_parses += (parse_corpus(filename))
+
+    possible_targets_distr = [0, 1, 2]
+
+    corrupted_word_type = defaultdict(lambda: "UNK")
+    # Get a corrupted POS tag for each word
+    for sentence in ud_parses:
+        for token in sentence:
+            corrupted_behaviour = np.random.choice(possible_targets_distr, 1).item()
+
+            if token['form'] not in corrupted_word_type:
+                corrupted_word_type[token['form']] = corrupted_behaviour
+
+    return corrupted_word_type
+
+ # Get out corrupted pos tokens for each word type
+corrupted_dep_vocab: Dict[str, str] = create_corrupted_dep_vocab(use_sample)
+
 # Prep dataset yet again
+# if co
 print("Prepping datasets for Dependency parsing")
-train_data_raw = init_corpus(config.path_to_data_train, use_dependencies=True)
-train_dataset = ProbingDataset(train_data_raw[1], train_data_raw[0])
-train_dataloader = DataLoader(train_dataset, batch_size=8, collate_fn=custom_collate_fn)
+# train_data_raw = init_corpus(config.path_to_data_train, use_dependencies=True, dep_vocab=corrupted_dep_vocab)
+# train_dataset = ProbingDataset(train_data_raw[1], train_data_raw[0])
+# train_dataloader = DataLoader(train_dataset, batch_size=8, collate_fn=custom_collate_fn)
 
-valid_data_raw = init_corpus(config.path_to_data_valid, use_dependencies=True)
-valid_dataset = ProbingDataset(valid_data_raw[1], valid_data_raw[0])
-valid_dataloader = DataLoader(valid_dataset, batch_size=8, collate_fn=custom_collate_fn)
+# valid_data_raw = init_corpus(config.path_to_data_valid, use_dependencies=True, dep_vocab=corrupted_dep_vocab)
+# valid_dataset = ProbingDataset(valid_data_raw[1], valid_data_raw[0])
+# valid_dataloader = DataLoader(valid_dataset, batch_size=8, collate_fn=custom_collate_fn)
 
-print("Starting training for dependency parsing")
-train_dep_parsing(
-    train_dataloader,
-    valid_dataloader,
-    config
-)
+# print("Starting training for dependency parsing")
+# train_dep_parsing(
+#     train_dataloader,
+#     valid_dataloader,
+#     config,
+# )
 
 # %%
-# Sample experimentation with single
-# sample_probe = TwoWordBilinearLabelProbe(64, 768, 0.5)
-# sample_X = train_data_raw[1][0].unsqueeze(0)
-# sample_Y, sample_Y_root_idx = train_data_raw[0][0]
-# sample_pred = sample_probe(sample_X).squeeze()
+# Control task time
+if config.will_controL_task_dependency_probe:
+    print("Prepping datasets for Dependency parsing - Control Task")
+    train_data_raw = init_corpus(
+        config.path_to_data_train,
+        use_dependencies=True,
+        corrupted=True,
+        dep_vocab=corrupted_dep_vocab
+    )
+    train_dataset = ProbingDataset(train_data_raw[1], train_data_raw[0])
+    train_dataloader = DataLoader(train_dataset, batch_size=8, collate_fn=custom_collate_fn)
 
-# # Mask idx of the root
-# masked_idx = sample_Y != -1
-# masked_pred = sample_pred[masked_idx]
-# masked_y = sample_Y[masked_idx].long()
+    valid_data_raw = init_corpus(
+        config.path_to_data_valid,
+        use_dependencies=True,
+        corrupted=True,
+        dep_vocab=corrupted_dep_vocab
+    )
+    valid_dataset = ProbingDataset(valid_data_raw[1], valid_data_raw[0])
+    valid_dataloader = DataLoader(valid_dataset, batch_size=1, collate_fn=custom_collate_fn)
+
+    print("Starting training for Dependency parsing - Control Task")
+    train_dep_parsing(
+        train_dataloader,
+        valid_dataloader,
+        config
+    )
