@@ -15,7 +15,11 @@ class Config:
     will_train_simple_probe: bool = True
     will_train_structural_probe: bool = True
 
-    # POS Probe settings
+    # POS Probe Model Params
+    pos_probe_batch_size: int = 64
+    pos_probe_train_epoch: int = 1000
+    pos_probe_train_patience: int = 4
+    pos_probe_lr: float = 0.0001
 
     # Structural probe parameters
     struct_probe_emb_dim: int = 768

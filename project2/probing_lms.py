@@ -438,11 +438,11 @@ import torch.nn.functional as F
 class SimpleProbe(nn.Module):
     def __init__(
         self,
-        hidden_dim,
+        embedding_dim,
         out_dim
     ):
         super().__init__()
-        self.h2out = nn.Linear(hidden_dim, out_dim)
+        self.h2out = nn.Linear(embedding_dim, out_dim)
         self.softmax = nn.Softmax(dim=1)
 
     def forward(self, X):
@@ -454,11 +454,11 @@ class ML1Probe(nn.Module):
 
     def __init__(
         self,
-        hidden_dim,
+        embedding_dim,
         out_dim
     ):
         super().__init__()
-        self.h1 = nn.Linear(hidden_dim, 300)
+        self.h1 = nn.Linear(embedding_dim, 300)
         self.output = nn.Linear(300, out_dim)
 
     def forward(self, X):
@@ -474,20 +474,25 @@ from skorch import NeuralNetClassifier
 from skorch.callbacks import EpochScoring, Checkpoint, TrainEndCheckpoint, LoadInitState, EarlyStopping
 from skorch.dataset import Dataset
 from skorch.helper import predefined_split
+from skorch.history import History
 
-hidden_size = train_data_X[0].shape[1] # need to be the actual hidden size
+from results_writer import Results_Writer
+
+results_writer = Results_Writer(config)
+
+embedding_size = train_data_X[0].shape[1] # size of the word embedding (either 650 or 768)
 vocab_size = len(train_vocab)#17
 
 # Probe
-# probe: nn.Module = SimpleProbe(
-#     hidden_size,
-#     vocab_size
-# )
-
-probe: nn.Module = ML1Probe(
-    hidden_size,
+probe: nn.Module = SimpleProbe(
+    embedding_size,
     vocab_size
 )
+
+# probe: nn.Module = ML1Probe(
+#     embedding_size,
+#     vocab_size
+# )
 
 train_acc = EpochScoring(scoring='accuracy', 
                             on_train=True, 
@@ -509,7 +514,7 @@ net: NeuralNetClassifier = NeuralNetClassifier(
     probe,
     callbacks=callbacks,
     max_epochs=5,
-    batch_size=8,
+    batch_size=32,
     lr=0.0001,
     train_split=predefined_split(valid_ds),
     iterator_train__shuffle=True,
@@ -524,9 +529,10 @@ if config.will_train_simple_probe: # Train a new model with skorch's fit
     net.fit(train_X, train_y)
     print('Done Training Probe')
 
+total_epochs = len(net.history)
 valid_predictions = net.predict(valid_X)
 valid_acc = accuracy(valid_predictions, valid_y)
-print(valid_acc)
+print(f'Validation Accuracy: {valid_acc:.4f}')  
 
 # Load the best version of a model, either just trained or saved
 # net.initialize()
@@ -541,17 +547,6 @@ print(valid_acc)
 
 # predictions = net.predict(test_X)
 
-# all_pred = 0
-# correct_pred = 0
-
-# # Get the test accuracy
-# for target, prediction in zip(test_y, predictions):
-#     all_pred += 1
-#     if target.item() == prediction:
-#         correct_pred += 1
-    
-# print(f'Test Accuracy: {(correct_pred/all_pred):.4f}')
-
 
 # %% Train a corrupted prob classifier
 
@@ -559,29 +554,38 @@ c_train_X, c_train_y = transform_XY_to_concat_tensors(c_train_data_X, c_train_da
 c_valid_X, c_valid_y = transform_XY_to_concat_tensors(c_valid_data_X, c_valid_data_y)
 c_valid_ds = Dataset(c_valid_X, c_valid_y)
 
-# c_probe: nn.Module = SimpleProbe(
-#     hidden_size,
-#     vocab_size
-# )
-c_probe: nn.Module = ML1Probe(
-    hidden_size,
+c_probe: nn.Module = SimpleProbe(
+    embedding_size,
     vocab_size
 )
+# c_probe: nn.Module = ML1Probe(
+#     embedding_size,
+#     vocab_size
+# )
 
 corrupted_net: NeuralNetClassifier = NeuralNetClassifier(
     c_probe,
     callbacks=callbacks,
-    max_epochs=1000,
-    batch_size=8,
+    max_epochs=5,
+    batch_size=32,
     lr=0.0001,
     train_split=predefined_split(c_valid_ds),
     iterator_train__shuffle=True,
     optimizer= torch.optim.Adam,
 )
 
-
 corrupted_net.fit(c_train_X, c_train_y)
 
+c_valid_preds = corrupted_net.predict(c_valid_X)
+c_valid_acc = accuracy(c_valid_preds, c_valid_y)
+print(f'Corrupted Validation Accuracy: {c_valid_acc:.4f}') 
+c_total_epochs = len(corrupted_net.history)
+# %%
+valid_selectivity = valid_acc - c_valid_acc
+print(f'Validation Selectivity: {valid_selectivity:.4f}')
+
+
+results_writer.write_POS_probe_results(valid_acc, valid_selectivity, total_epochs, c_total_epochs)
 # %% [markdown]
 # # Trees
 #

@@ -3,14 +3,14 @@ from config import Config
 import os
 import csv
 
-now = datetime.now()
-file_id = now.strftime("%m/%d/%Y, %H:%M:%S")
-
+# now = datetime.now()
+# file_id = now.strftime("%m/%d/%Y, %H:%M:%S")
+results_path = 'results/'
 fieldnames_POS_probe = ['model_params',
                         'LSTM_linear_acc',
                         'LSTM_linear_select',
-                        'LSTM_simple_total_epochs',
-                        'LSTM_simple_corrupted_total_epochs',
+                        'LSTM_linear_total_epochs',
+                        'LSTM_linear_corrupted_total_epochs',
                         'LSTM_ML1_acc',
                         'LSTM_ML1_select',
                         'LSTM_ML1_total_epochs',
@@ -29,7 +29,19 @@ class Results_Writer:
         self.results_folder_check()
         pass
 
-    def write_POS_Probe_Results(self):
+    def write_POS_probe_results(self, 
+                                validation_acc: float, 
+                                validation_selec: float, 
+                                training_epochs: int, 
+                                c_training_epochs: int):
+        """ """
+        print(f'{validation_acc}, {validation_selec}, {training_epochs}, {c_training_epochs}')
+        
+
+
+    def generate_file_name(self, probe_type: str, model_type: str, probe_model_type: str) -> str:
+        file_name = f'{probe_type}_{model_type}_{probe_model_type}'
+        return file_name
         
 
     def results_folder_check(self):
