@@ -34,11 +34,15 @@
 from config import Config
 
 config: Config = Config(
-    run_label='',
-    will_train_simple_probe=True,
+    run_label='full_data',
+    uses_sample=False,
+    feature_model_type='LSTM',
+    will_train_simple_probe=False,
+    will_control_task_simple_prob=False,
     will_train_structural_probe=True,
-    will_train_dependency_probe=True,
-    struct_probe_train_epoch=5,
+    will_train_dependency_probe=False,
+    will_control_task_dependency_probe=False,
+    struct_probe_train_epoch=100,
     struct_probe_lr=0.001
 )
 
@@ -308,7 +312,7 @@ if config.feature_model_type == 'LSTM':
     config.feature_model_dimensionality = 650
     w2i = vocab
 else:
-    print("Important: We will use {config.feature_model_type} as our model representation")
+    print(f"Important: We will use {config.feature_model_type} as our model representation")
     config.feature_model_dimensionality = 768
     model = trans_model
     w2i = trans_tokenizer
@@ -373,35 +377,6 @@ def create_corrupted_tokens(use_sample: bool) -> Dict[str, str]:
 corrupted_pos_tags: Dict[str, str] = create_corrupted_tokens(use_sample)
 
 # %%
-train_data_X, train_data_y, train_vocab = create_data(
-    os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-train.conllu'),
-    model,
-    w2i
-)
-
-corrupted_train_data_X, corrupted_train_data_y, corrupted_train_vocab = create_data(
-    os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-train.conllu'),
-    model,
-    w2i,
-    corrupted=True,
-    corrupted_pos_tags=corrupted_pos_tags
-)
-
-valid_data_X, valid_data_y, _ = create_data(
-    os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-dev.conllu'),
-    model,
-    w2i,
-    pos_vocab=train_vocab
-)
-
-corrupted_valid_data_X, corrupted_valid_data_y, _ = create_data(
-    os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-train.conllu'),
-    model,
-    w2i,
-    pos_vocab=corrupted_train_vocab,
-    corrupted=True,
-    corrupted_pos_tags=corrupted_pos_tags
-)
 
 # %%
 # Utility functions for transforming X and y to appropriate formats
@@ -485,58 +460,68 @@ import results_writer
 importlib.reload(results_writer)
 from results_writer import ResultsWriter
 
-embedding_size = train_data_X[0].shape[1] # size of the word embedding (either 650 or 768)
-vocab_size = len(train_vocab)#17
-
 rw = ResultsWriter(config)
-
-# Probe
-probe: nn.Module = SimpleProbe(
-    embedding_size,
-    vocab_size
-)
-
-pos_probe_results = defaultdict(list)
-
-# probe: nn.Module = ML1Probe(
-#     embedding_size,
-#     vocab_size
-# )
-
-train_acc = EpochScoring(scoring='accuracy',
-                            on_train=True,
-                            name='train_acc',
-                            lower_is_better=False)
-early_stopping = EarlyStopping(monitor='valid_acc',
-                                patience=config.pos_probe_train_patience,
-                                lower_is_better=False)
-
-callbacks = [train_acc, early_stopping]
-
-# Concatenate all the tensors
-train_X, train_y = transform_XY_to_concat_tensors(train_data_X, train_data_y)
-valid_X, valid_y = transform_XY_to_concat_tensors(valid_data_X, valid_data_y)
-valid_ds = Dataset(valid_X, valid_y)
-
-# Have a trainer
-# TODO: Add a train/validation split
-net: NeuralNetClassifier = NeuralNetClassifier(
-    probe,
-    callbacks=callbacks,
-    max_epochs=config.pos_probe_train_epoch,
-    batch_size=config.pos_probe_train_batch_size,
-    lr=config.pos_probe_train_lr,
-    train_split=predefined_split(valid_ds),
-    iterator_train__shuffle=True,
-    optimizer= torch.optim.Adam,
-)
 
 # Helper function to calculate accuracy
 accuracy = lambda preds, targets: sum([1 if pred == target else 0 for pred, target in zip(preds, targets)]) / len(preds)
+pos_probe_results = defaultdict(list)
 valid_acc = None
+train_acc = EpochScoring(scoring='accuracy',
+                        on_train=True,
+                        name='train_acc',
+                        lower_is_better=False)
+early_stopping = EarlyStopping(monitor='valid_acc',
+                                patience=config.pos_probe_train_patience,
+                                lower_is_better=False)
+callbacks = [train_acc, early_stopping]
 
 if config.will_train_simple_probe:
+    train_data_X, train_data_y, train_vocab = create_data(
+        os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-train.conllu'),
+        model,
+        w2i
+    )
+
+    valid_data_X, valid_data_y, _ = create_data(
+        os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-dev.conllu'),
+        model,
+        w2i,
+        pos_vocab=train_vocab
+    )
+
+    train_X, train_y = transform_XY_to_concat_tensors(train_data_X, train_data_y)
+    valid_X, valid_y = transform_XY_to_concat_tensors(valid_data_X, valid_data_y)
+    valid_ds = Dataset(valid_X, valid_y)
+
     print('Training POS probe')
+    train_acc = EpochScoring(scoring='accuracy',
+                            on_train=True,
+                            name='train_acc',
+                            lower_is_better=False)
+    early_stopping = EarlyStopping(monitor='valid_acc',
+                                    patience=config.pos_probe_train_patience,
+                                    lower_is_better=False)
+    callbacks = [train_acc, early_stopping]
+
+    embedding_size = train_data_X[0].shape[1] # size of the word embedding (either 650 or 768)
+    vocab_size = len(train_vocab)#17
+
+    probe: nn.Module = SimpleProbe(
+        embedding_size,
+        vocab_size
+    )
+
+    net: NeuralNetClassifier = NeuralNetClassifier(
+        probe,
+        callbacks=callbacks,
+        max_epochs=config.pos_probe_train_epoch,
+        batch_size=config.pos_probe_train_batch_size,
+        lr=config.pos_probe_train_lr,
+        train_split=predefined_split(valid_ds),
+        iterator_train__shuffle=True,
+        optimizer= torch.optim.Adam,
+    )
+
     net.fit(train_X, train_y)
     print('Done Training Probe')
 
@@ -565,6 +550,31 @@ if config.will_train_simple_probe:
 
 # %% Train a corrupted prob classifier
 if config.will_control_task_simple_prob:
+    corrupted_train_data_X, corrupted_train_data_y, corrupted_train_vocab = create_data(
+        os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-train.conllu'),
+        model,
+        w2i,
+        corrupted=True,
+        corrupted_pos_tags=corrupted_pos_tags
+    )
+
+    corrupted_valid_data_X, corrupted_valid_data_y, _ = create_data(
+        os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-train.conllu'),
+        model,
+        w2i,
+        pos_vocab=corrupted_train_vocab,
+        corrupted=True,
+        corrupted_pos_tags=corrupted_pos_tags
+    )
+
+    embedding_size = corrupted_train_data_X[0].shape[1] # size of the word embedding (either 650 or 768)
+    vocab_size = len(corrupted_train_vocab)#17
+
+    probe: nn.Module = SimpleProbe(
+        embedding_size,
+        vocab_size
+    )
+
     corrupted_train_X, corrupted_train_y = transform_XY_to_concat_tensors(corrupted_train_data_X, corrupted_train_data_y)
     corrupted_valid_X, corrupted_valid_y = transform_XY_to_concat_tensors(corrupted_valid_data_X, corrupted_valid_data_y)
     corrupted_valid_ds = Dataset(corrupted_valid_X, corrupted_valid_y)
@@ -612,7 +622,8 @@ if config.will_control_task_simple_prob:
     pos_probe_results['corrupted_validation_accs'] = corrupted_validation_accs
 
 # Now write results at the end of the POS
-rw.write_results('POS', 'Transformer', config.feature_model_type, results=pos_probe_results)
+if config.will_train_simple_probe or config.will_control_task_simple_prob:
+    rw.write_results('POS', 'Transformer', config.feature_model_type, results=pos_probe_results)
 
 # %% Visualize data
 import seaborn as sns
@@ -654,6 +665,21 @@ def plot_probe_validation_accs(filename: str, model_type: str, column_names:dict
 
     sns.set_palette(sns.color_palette("BuGn_r"))
     ax1 = sns.lineplot(data=trans_result_df[['Trans Val Accs', 'Corr Trans Val Accs']], alpha=0.7)
+    sns.set_palette(sns.light_palette("navy", reverse=True))
+    ax2 = sns.lineplot(data=lstm_result_df[['LSTM Val Accs', 'Corr LSTM Val Accs']], alpha=0.7)
+
+
+    plt.xlabel('epochs')
+    plt.ylabel('accuracy')
+
+def plot_probe_validation_accs_by_modelfiles(filename_LSTM: str, filename_Transformer, probe_type: str):
+    assert probe_type in ['POS', 'dep_edge_probe', 'struct_probe'], 'model type needs to be: POS, Edge or Structural.'
+    transformer_df = pd.read_csv(filename_Transformer)
+    lstm_df = pd.read_csv(filename_LSTM)
+
+    sns.set_palette(sns.color_palette("BuGn_r"))
+    # ax1 = sns.lineplot(data=transfo[['Trans Val Accs', 'Corr Trans Val Accs']], alpha=0.7)
+
     sns.set_palette(sns.light_palette("navy", reverse=True))
     ax2 = sns.lineplot(data=lstm_result_df[['LSTM Val Accs', 'Corr LSTM Val Accs']], alpha=0.7)
 
@@ -1354,11 +1380,13 @@ def train_dep_parsing(
 
     valid_losses = []
     acc_scores = []
+    it = 0
 
     for epoch in range(epochs):
         print(f"\n---- EPOCH {epoch + 1} ---- \n")
 
-        for train_batch in train_dataloader:
+        for idx, train_batch in enumerate(train_dataloader):
+            it += 1
             # Setup
             probe.train()
             optimizer.zero_grad()
@@ -1373,6 +1401,10 @@ def train_dep_parsing(
 
                 pred = probe(train_X).squeeze()
 
+                if len(train_y) < 2:
+                    print(f"Encountered: null sentence")
+                    continue
+
                 # In case we will deal with the control task, decrease the parent by 1
                 sen_len = len(train_y)
                 if sen_len in train_y:
@@ -1386,8 +1418,11 @@ def train_dep_parsing(
                 item_loss = item_loss.mean()
                 batch_loss += item_loss
 
-            batch_loss.backward()
-            optimizer.step()
+            try:
+                batch_loss.backward()
+                optimizer.step()
+            except:
+                continue
 
         valid_loss, acc_score = evaluate_dep_probe(probe, valid_dataloader)
         acc_scores.append(acc_score.item())
