@@ -1,0 +1,2 @@
+from .TwoWordBilinearProbe import TwoWordBilinearLabelProbe
+from .StructuralProbe import StructuralProbe

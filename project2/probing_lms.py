@@ -795,19 +795,6 @@ def create_gold_distances(corpus) -> List[Tensor]:
 #
 # Hewitt et al. reconstruct a parse tree based on a _minimum spanning tree_ (MST, https://en.wikipedia.org/wiki/Minimum_spanning_tree). Fortunately for us, we can simply import a method from `scipy` that retrieves this MST.
 
-# %%
-from scipy.sparse.csgraph import minimum_spanning_tree
-import torch
-
-def create_mst(distances):
-    distances = torch.triu(distances).detach().numpy()
-
-    mst = minimum_spanning_tree(distances).toarray()
-    mst[mst>0] = 1.
-
-    return mst
-
-
 # %% [markdown]
 # Let's have a look at what this looks like, by looking at a relatively short sentence in the sample corpus.
 #
@@ -843,40 +830,6 @@ def create_mst(distances):
 # %%
 # 🏁
 # Utility function: check if edge is in set of edges
-check_edge_in_edgeset = lambda edge, edgeset: (edge[0], edge[1]) in edgeset or (edge[1], edge[0]) in edgeset
-
-def edges(mst):
-    """
-    Get all edges from a minimum spanning tree `mst`
-    """
-
-    all_edges = list(zip(mst.nonzero()[0], mst.nonzero()[1]))
-
-    # Ensure (A, B) and (B, A) only return one combination
-    all_edges = set(tuple(frozenset(sub)) for sub in set(all_edges))
-
-    return all_edges
-
-def calc_uuas(pred_distances, gold_distances):
-    uuas = None
-
-    # Get MSTs from distances
-    pred_mst = create_mst(pred_distances)
-    gold_mst = create_mst(gold_distances)
-
-    # Convert MSTs to edges
-    pred_edges = edges(pred_mst)
-    gold_edges = edges(gold_mst)
-
-    # Calculate UUAS
-    nr_correct_edges =len(
-        [pred_edge for pred_edge in pred_edges
-         if check_edge_in_edgeset(pred_edge, gold_edges)]
-    )
-
-    uuas = nr_correct_edges / len(gold_edges)
-
-    return uuas
 
 # %% [markdown]
 # # Structural Probes
@@ -888,112 +841,14 @@ def calc_uuas(pred_distances, gold_distances):
 # %%
 import torch.nn as nn
 import torch
-
-
-class StructuralProbe(nn.Module):
-    """ Computes squared L2 distance after projection by a matrix.
-    For a batch of sentences, computes all n^2 pairs of distances
-    for each sentence in the batch.
-    """
-    def __init__(self, model_dim, rank, device="cpu"):
-        super().__init__()
-        self.probe_rank = rank
-        self.model_dim = model_dim
-
-        self.proj = nn.Parameter(
-            data = torch.zeros(self.model_dim, self.probe_rank),
-            requires_grad=True
-        )
-
-        nn.init.uniform_(self.proj, -0.05, 0.05)
-        self.to(device)
-
-    def forward(self, batch):
-        """ Computes all n^2 pairs of distances after projection
-        for each sentence in a batch.
-        Note that due to padding, some distances will be non-zero for pads.
-        Computes (B(h_i-h_j))^T(B(h_i-h_j)) for all i,j
-        Args:
-          batch: a batch of word representations of the shape
-            (batch_size, max_seq_len, representation_dim)
-        Returns:
-          A tensor of distances of shape (batch_size, max_seq_len, max_seq_len)
-        """
-        transformed = torch.matmul(batch, self.proj)
-
-        batchlen, seqlen, rank = transformed.size()
-
-        transformed = transformed.unsqueeze(2)
-        transformed = transformed.expand(-1, -1, seqlen, -1)
-        transposed = transformed.transpose(1,2)
-
-        diffs = transformed - transposed
-
-        squared_diffs = diffs.pow(2)
-        squared_distances = torch.sum(squared_diffs, -1)
-
-        return squared_distances
-
-
-class L1DistanceLoss(nn.Module):
-    """Custom L1 loss for distance matrices."""
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, predictions, label_batch, length_batch):
-        """ Computes L1 loss on distance matrices.
-        Ignores all entries where label_batch=-1
-        Normalizes first within sentences (by dividing by the square of the sentence length)
-        and then across the batch.
-        Args:
-          predictions: A pytorch batch of predicted distances
-          label_batch: A pytorch batch of true distances
-          length_batch: A pytorch batch of sentence lengths
-        Returns:
-          A tuple of:
-            batch_loss: average loss in the batch
-            total_sents: number of sentences in the batch
-        """
-        labels_1s = (label_batch != -1).float()
-        predictions_masked = predictions * labels_1s
-        labels_masked = label_batch * labels_1s
-        total_sents = torch.sum((length_batch != 0)).float()
-        squared_lengths = length_batch.pow(2).float()
-
-        if total_sents > 0:
-            loss_per_sent = torch.sum(torch.abs(predictions_masked - labels_masked), dim=(1,2))
-            normalized_loss_per_sent = loss_per_sent / squared_lengths
-            batch_loss = torch.sum(normalized_loss_per_sent) / total_sents
-
-        else:
-            batch_loss = torch.tensor(0.0)
-
-        return batch_loss, total_sents
-
+from data_tools.datasets import ProbingDataset
+from torch.utils.data import DataLoader
 
 
 # %% [markdown]
 # I have provided a rough outline for the training regime that you can use. Note that the hyper parameters that I provide here only serve as an indication, but should be (briefly) explored by yourself.
 #
 # As can be seen in Hewitt's code above, there exists functionality in the probe to deal with batched input. It is up to you to use that: a (less efficient) method can still incorporate batches by doing multiple forward passes for a batch and computing the backward pass only once for the summed losses of all these forward passes. (_I know, this is not the way to go, but in the interest of time that is allowed ;-), the purpose of the assignment is writing a good paper after all_).
-
-# %%
-# 🏁
-from torch.utils.data import DataLoader, Dataset
-
-class ProbingDataset(Dataset):
-    def __init__(self, features, targets):
-        self.features = features
-        self.targets = targets
-
-    def __len__(self):
-        return len(self.targets)
-
-    def __getitem__(self, idx):
-        return (self.features[idx], self.targets[idx])
-
-def custom_collate_fn(items: List[Tensor]) -> List[Tensor]:
-    return items
 
 # %%
 # Utility functions for dependency parsing
@@ -1133,108 +988,16 @@ def init_dataloader_sequential(path: str, batch_size: int, cutoff=None) -> DataL
 # Prep data-loaders
 
 # %%
+from runners.trainers import train_struct
 from torch import optim
-def evaluate_probe(probe, data_loader):
-    loss_scores: List[Tensor] = []
-    uuas_scores: List[Tensor] = []
-    loss_score = 0
-    uuas_score = 0
-
-    probe.eval()
-    loss_function = L1DistanceLoss()
-
-    with torch.no_grad():
-        for idx, batch_item in enumerate(data_loader):
-            for item in batch_item:
-                X, y = item
-
-                if len(X.shape) == 2:
-                    X = X.unsqueeze(0)
-
-                # Sentences with strange tokens, we ignore for the moment
-                if len(y) < 2:
-                    print(f"Encountered: null sentence at idx {idx}")
-                    continue
-
-                pred_distances = probe(X)
-                item_loss, _ = loss_function(pred_distances, y, torch.tensor(len(y)))
-
-                if len(pred_distances.shape) > 2:
-                    pred_distances = pred_distances.squeeze(0)
-
-                uuas = calc_uuas(pred_distances, y)
-
-                loss_score += item_loss.item()
-                loss_scores.append(torch.tensor(item_loss.item()))
-                uuas_scores.append(torch.tensor(uuas, dtype=torch.float))
-
-    loss_score = torch.mean(torch.stack(loss_scores))
-    uuas_score = torch.mean(torch.stack(uuas_scores))
-    print(f"Average evaluation loss score is {loss_score}")
-    print(f"Average evaluation uuas score is {uuas_score}")
-
-    return loss_score, uuas_score
-
-def train(
-    train_dataloader: DataLoader,
-    valid_dataloader: DataLoader,
-    config: Config
-):
-    emb_dim: int = config.feature_model_dimensionality
-    rank: int = config.struct_probe_rank
-    lr: float = config.struct_probe_lr
-    epochs: int = config.struct_probe_train_epoch
-
-    valid_losses = []
-    valid_uuas_scores = []
-
-    probe: nn.Module = StructuralProbe(emb_dim, rank)
-
-    # Training tools
-    optimizer = optim.Adam(probe.parameters(), lr=lr)
-#     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5,patience=1)
-    loss_function = L1DistanceLoss()
-
-    for epoch in range(epochs):
-        print(f"\n---- EPOCH {epoch + 1} ---- \n")
-        for train_batch in train_dataloader:
-            # Setup
-            probe.train()
-            optimizer.zero_grad()
-
-            batch_loss = torch.tensor([0.0])
-
-            for train_item in train_batch:
-                train_X, train_y = train_item
-                train_X, train_y = train_item
-
-                if len(train_X.shape) == 2:
-                    train_X = train_X.unsqueeze(0)
-
-                pred_distances = probe(train_X)
-                item_loss, _ = loss_function(pred_distances, train_y, torch.tensor(len(train_y)))
-                batch_loss += item_loss
-
-            batch_loss.backward()
-            optimizer.step()
-
-        # Calculate validation scores
-        # TODO: Double-check that the UUAS works
-        valid_loss, valid_uuas = evaluate_probe(probe, valid_dataloader)
-        valid_losses.append(valid_loss.item())
-        valid_uuas_scores.append(valid_uuas.item())
-
-        # TODO: Optional Param-tune scheduler (?)
-#         scheduler.step(valid_loss)
-
-    return probe, valid_losses, valid_uuas_scores
 
 if config.will_train_structural_probe:
     print("Loading in data for structural probe!")
     train_dataloader = init_dataloader_sequential(config.path_to_data_train, config.struct_probe_train_batch_size)
     valid_dataloader = init_dataloader_sequential('data/sample/en_ewt-ud-dev.conllu', 1)
+
     print("Starting training for structural probe!")
-    trained_probe, valid_losses, valid_uuas_scores = train(train_dataloader, valid_dataloader, config)
+    trained_probe, valid_losses, valid_uuas_scores = train_struct(train_dataloader, valid_dataloader, config)
     print("Finished training for structural probe!")
 
     struct_probe_results = {
@@ -1246,193 +1009,10 @@ if config.will_train_structural_probe:
 
 # %% [markdown]
 # # Structural Probing Control Task
+from runners.trainers import train_dep_parsing
+from data_tools.dataloaders import custom_collate_fn
 
 # %%
-
-class TwoWordBilinearLabelProbe(nn.Module):
-  """ Computes a bilinear function of pairs of vectors.
-  For a batch of sentences, computes all n^2 pairs of scores
-  for each sentence in the batch.
-  """
-  def __init__(
-      self,
-      max_rank: int,
-      feature_dim: int,
-      dropout_p: float
-  ):
-    super().__init__()
-    self.maximum_rank = max_rank
-    self.feature_dim = feature_dim
-    self.proj_L = nn.Parameter(data = torch.zeros(self.feature_dim, self.maximum_rank), requires_grad=True)
-    self.proj_R = nn.Parameter(data = torch.zeros(self.maximum_rank, self.feature_dim), requires_grad=True)
-    self.bias = nn.Parameter(data=torch.zeros(1), requires_grad=True)
-
-    nn.init.uniform_(self.proj_L, -0.05, 0.05)
-    nn.init.uniform_(self.proj_R, -0.05, 0.05)
-    nn.init.uniform_(self.bias, -0.05, 0.05)
-
-    self.dropout = nn.Dropout(p=dropout_p)
-    self.softmax = nn.LogSoftmax(2)
-
-  def forward(self, batch):
-    """ Computes all n^2 pairs of attachment scores
-    for each sentence in a batch.
-    Computes h_i^TAh_j for all i,j
-    where A = LR, L in R^{model_dim x maximum_rank}; R in R^{maximum_rank x model_rank}
-    hence A is rank-constrained to maximum_rank.
-    Args:
-      batch: a batch of word representations of the shape
-        (batch_size, max_seq_len, representation_dim)
-    Returns:
-      A tensor of scores of shape (batch_size, max_seq_len, max_seq_len)
-    """
-    batchlen, seqlen, rank = batch.size()
-    batch = self.dropout(batch)
-    # A/Proj = L * R
-    proj = torch.mm(self.proj_L, self.proj_R)
-
-    # Expand matrix to allow another instance of all cols/rows
-    batch_square = batch.unsqueeze(2).expand(batchlen, seqlen, seqlen, rank)
-
-    # Add another instance of seqlen (do it on position 1 for some reason)
-    # => change view so that it becomes rows of 'rank/hidden-dim'
-    batch_transposed = batch.unsqueeze(1).expand(batchlen, seqlen, seqlen, rank).contiguous().view(batchlen*seqlen*seqlen,rank,1)
-
-    # Multiply the `batch_square` matrix with the projection
-    psd_transformed = torch.matmul(batch_square.contiguous(), proj).view(batchlen*seqlen*seqlen,1, rank)
-
-    # Multiple resulting matrix `psd_transform` with each j
-    logits = (torch.bmm(psd_transformed, batch_transposed) + self.bias).view(batchlen, seqlen, seqlen)
-
-    probs = self.softmax(logits)
-    return probs
-
-
-# %%
-from torch.nn import NLLLoss
-from sklearn.metrics import accuracy_score
-
-def evaluate_dep_probe(probe, data_loader):
-    loss_scores: List[Tensor] = []
-    acc_scores: List[Tensor] = []
-    loss_score = 0
-
-    probe.eval()
-    loss_function = NLLLoss()
-
-    with torch.no_grad():
-        for idx, batch_item in enumerate(data_loader):
-            for item in batch_item:
-                valid_X, valid_y_tup = item
-
-                valid_X = valid_X.unsqueeze(0)
-                valid_y, _ = valid_y_tup
-
-                pred = probe(valid_X).squeeze()
-                           # Sentences with strange tokens, we ignore for the moment
-                if len(valid_y) < 2:
-                    print(f"Encountered: null sentence at idx {idx}")
-                    continue
-
-                # In case we will deal with the control task, decrease the parent by 1
-                sen_len = len(valid_y)
-                if sen_len in valid_y:
-                    valid_y[valid_y == sen_len] = sen_len - 1
-
-                masked_idx = valid_y != -1
-                masked_pred = pred[masked_idx]
-                masked_y = valid_y[masked_idx].long()
-
-                item_loss = loss_function(masked_pred, masked_y)
-                acc = accuracy_score(masked_y, masked_pred.argmax(1))
-                loss_scores.append(torch.tensor(item_loss.item()))
-                acc_scores.append(torch.tensor(acc))
-
-    loss_score = torch.mean(torch.stack(loss_scores))
-    acc_score = torch.mean(torch.stack(acc_scores))
-
-    print(f"Average evaluation loss score is {loss_score}")
-    print(f"Average evaluation accuracy score is {acc_score}")
-
-    return loss_score, acc_score
-
-
-def train_dep_parsing(
-    train_dataloader: DataLoader,
-    valid_dataloader: DataLoader,
-    config: Config
-):
-    emb_dim: int = config.feature_model_dimensionality
-    rank: int = config.struct_probe_rank
-    lr: float = config.struct_probe_lr
-    epochs: int = config.dep_probe_train_epoch
-
-    probe: nn.Module = TwoWordBilinearLabelProbe(
-        max_rank=rank,
-        feature_dim=emb_dim,
-        dropout_p=0.2
-    )
-
-    # Training tools
-    optimizer = optim.Adam(probe.parameters(), lr=lr)
-#     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5,patience=1)
-    loss_function = NLLLoss(reduction='none')
-
-    valid_losses = []
-    acc_scores = []
-    it = 0
-
-    for epoch in range(epochs):
-        print(f"\n---- EPOCH {epoch + 1} ---- \n")
-
-        for idx, train_batch in enumerate(train_dataloader):
-            it += 1
-            # Setup
-            probe.train()
-            optimizer.zero_grad()
-
-            batch_loss = torch.tensor([0.0])
-
-            for train_item in train_batch:
-                train_X, train_y_tup = train_item
-
-                train_X = train_X.unsqueeze(0)
-                train_y, _ = train_y_tup
-
-                pred = probe(train_X).squeeze()
-
-                if len(train_y) < 2:
-                    print(f"Encountered: null sentence")
-                    continue
-
-                # In case we will deal with the control task, decrease the parent by 1
-                sen_len = len(train_y)
-                if sen_len in train_y:
-                    train_y[train_y == sen_len] = sen_len - 1
-
-                masked_idx = train_y != -1
-                masked_pred = pred[masked_idx]
-                masked_y = train_y[masked_idx].long()
-
-                item_loss = loss_function(masked_pred, masked_y)
-                item_loss = item_loss.mean()
-                batch_loss += item_loss
-
-            try:
-                batch_loss.backward()
-                optimizer.step()
-            except:
-                continue
-
-        valid_loss, acc_score = evaluate_dep_probe(probe, valid_dataloader)
-        acc_scores.append(acc_score.item())
-        valid_losses.append(valid_loss.item())
-
-    return probe, valid_losses, acc_scores
-
-
-# %%
-
 def create_corrupted_dep_vocab(use_sample: bool) -> Dict[str, str]:
     # Get sentences from all data sets
     ud_parses = []
