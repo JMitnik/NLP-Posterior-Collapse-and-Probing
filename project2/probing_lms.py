@@ -34,6 +34,7 @@ import torch
 import torch.nn as nn
 from torch.nn.utils.rnn import pad_sequence
 
+from tools.arg_parser import ARGS
 from tools import utils
 from typing import DefaultDict
 from collections import defaultdict
@@ -51,8 +52,24 @@ sample_config: Config = Config(
     uses_sample=True,
     path_to_data_train='data/sample/en_ewt-ud-train.conllu',
     path_to_data_valid='data/sample/en_ewt-ud-dev.conllu',
-    feature_model_type='LSTM',
+    feature_model_type=ARGS.feature_model_type or 'LSTM',
     will_train_simple_probe=False,
+    will_control_task_simple_prob=False,
+    will_train_structural_probe=True,
+    will_train_dependency_probe=False,
+    will_control_task_dependency_probe=False,
+    struct_probe_train_epoch=100,
+    dep_probe_train_epoch=1000,
+    struct_probe_lr=0.001
+)
+
+full_config: Config = Config(
+    run_label='full_run_monday',
+    uses_sample=False,
+    path_to_data_train='data/en_ewt-ud-train.conllu',
+    path_to_data_valid='data/en_ewt-ud-dev.conllu',
+    feature_model_type='LSTM',
+    will_train_simple_probe=True,
     will_control_task_simple_prob=True,
     will_train_structural_probe=True,
     will_train_dependency_probe=True,
@@ -62,24 +79,9 @@ sample_config: Config = Config(
     struct_probe_lr=0.001
 )
 
+config = full_config
 
-full_config: Config = Config(
-    run_label='full_data',
-    uses_sample=False,
-    path_to_data_train='data/en_ewt-ud-train.conllu',
-    path_to_data_valid='data/en_ewt-ud-dev.conllu',
-    feature_model_type='LSTM',
-    will_train_simple_probe=False,
-    will_control_task_simple_prob=False,
-    will_train_structural_probe=False,
-    will_train_dependency_probe=False,
-    will_control_task_dependency_probe=True,
-    struct_probe_train_epoch=100,
-    dep_probe_train_epoch=1000,
-    struct_probe_lr=0.001
-)
-
-config = sample_config
+print(f'Running config with label {config.run_label}!')
 
 if 'sample' in config.path_to_data_train:
     print("Will train on sample data!")
@@ -153,7 +155,7 @@ get_ids_from_sent: Callable[[TokenList], List[str]] = lambda sent: [word['id'] f
 
 # %%
 # FETCH SENTENCE REPRESENTATIONS
-from torch import Tensor
+from torch import Tensor, full
 import pickle
 from data_tools.feature_extractors import fetch_sen_reps
 
