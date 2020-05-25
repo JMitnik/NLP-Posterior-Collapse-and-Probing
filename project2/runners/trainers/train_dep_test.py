@@ -12,7 +12,7 @@ def test_dep_dataloader_returns_parent():
 
     transformer, transformer_tokenizer = make_pretrained_transformer_and_tokenizer('distilgpt2')
 
-    train_dataloader, valid_dataloader = make_struct_dataloaders(
+    train_dataloader, _ = make_struct_dataloaders(
         path_to_train,
         path_to_valid,
         feature_model=transformer,
@@ -39,7 +39,7 @@ def test_dep_dataloader_returns_corrupted_idxs():
 
     transformer, transformer_tokenizer = make_pretrained_transformer_and_tokenizer('distilgpt2')
 
-    train_dataloader, valid_dataloader = make_struct_dataloaders(
+    train_dataloader, _ = make_struct_dataloaders(
         path_to_train,
         path_to_valid,
         feature_model=transformer,
@@ -49,8 +49,8 @@ def test_dep_dataloader_returns_corrupted_idxs():
         corruped_vocab=corrupted_dep_vocab
     )
 
+    # Sample of training
     train_sample = next(iter(train_dataloader))
-
     for train_item in train_sample:
         _, parent_edges = train_item
 

@@ -599,7 +599,6 @@ if config.will_train_structural_probe:
 
     rw.write_results('struct', config.feature_model_type, '', struct_probe_results)
 
-
 # %% [markdown]
 # # Dependency Probing Parent Task
 
@@ -609,76 +608,34 @@ if config.will_train_structural_probe:
 # This will be treated like a classificiation task, where given N potential nodes, the goal is to predict which of the N nodes is the parent, with Negative Log Likelihood as main loss function.
 
 # %%
-def create_corrupted_dep_vocab(use_sample: bool) -> Dict[str, str]:
-    # Get sentences from all data sets
-    ud_parses = []
-    for set_type in ['train', 'dev', 'test']:
-        filename = os.path.join('data', 'sample' if use_sample else '', f'en_ewt-ud-{set_type}.conllu')
-
-        ud_parses += (parse_corpus(filename))
-
-    possible_targets_distr = [0, 1, 2]
-
-    corrupted_word_type = defaultdict(lambda: "UNK")
-    # Get a corrupted POS tag for each word
-    for sentence in ud_parses:
-        for token in sentence:
-            corrupted_behaviour = np.random.choice(possible_targets_distr, 1).item()
-
-            if token['form'] not in corrupted_word_type:
-                corrupted_word_type[token['form']] = corrupted_behaviour
-
-    return corrupted_word_type
-
-# Start the probing trainings
 dep_probe_results = defaultdict(list)
 
-# Get out corrupted pos tokens for each word type
-corrupted_dep_vocab: Dict[str, str] = create_corrupted_dep_vocab(use_sample)
-
-# We will train the parent dependency probe if `config.will_train_dependency_probe` allows it.
 if config.will_train_dependency_probe:
-    print("Prepping datasets for Dependency parsing")
-    train_data_raw = init_tree_corpus(config.path_to_data_train, use_dependencies=True, dep_vocab=corrupted_dep_vocab)
-    train_dataset = ProbingDataset(train_data_raw[1], train_data_raw[0])
-    train_dataloader = DataLoader(train_dataset, batch_size=8, collate_fn=custom_collate_fn)
-
-    valid_data_raw = init_tree_corpus(config.path_to_data_valid, use_dependencies=True, dep_vocab=corrupted_dep_vocab)
-    valid_dataset = ProbingDataset(valid_data_raw[1], valid_data_raw[0])
-    valid_dataloader = DataLoader(valid_dataset, batch_size=8, collate_fn=custom_collate_fn)
-
-    print("Starting training for dependency parsing")
+    print("Loading datasets for Dependency parsing")
+    train_dataloader, valid_dataloader = make_struct_dataloaders(
+        config.path_to_data_train
+        config.path_to_data_valid,
+        feature_model=model,
+        feature_model_tokenizer=w2i,
+        use_dependencies=True
+    )
+    
+    print("Starting training for Dependency parsing")
     dep_trained_probe, dep_valid_losses, dep_valid_acc = train_dep_parsing(
         train_dataloader,
         valid_dataloader,
         config,
     )
 
-    # We store the results
+    # We then store some results
     dep_probe_results['valid_losses'] = dep_valid_losses
     dep_probe_results['valid_acc'] = dep_valid_acc
 
 # %%
 # Control task time
 if config.will_control_task_dependency_probe:
-    print("Prepping datasets for Dependency parsing - Control Task")
-    train_data_raw = init_corpus(
-        config.path_to_data_train,
-        use_dependencies=True,
-        corrupted=True,
-        dep_vocab=corrupted_dep_vocab
-    )
-    train_dataset = ProbingDataset(train_data_raw[1], train_data_raw[0])
-    train_dataloader = DataLoader(train_dataset, batch_size=8, collate_fn=custom_collate_fn)
-
-    valid_data_raw = init_corpus(
-        config.path_to_data_valid,
-        use_dependencies=True,
-        corrupted=True,
-        dep_vocab=corrupted_dep_vocab
-    )
-    valid_dataset = ProbingDataset(valid_data_raw[1], valid_data_raw[0])
-    valid_dataloader = DataLoader(valid_dataset, batch_size=1, collate_fn=custom_collate_fn)
+    print("Loading datasets for Dependency Probes")
+    
 
     print("Starting training for Dependency parsing - Control Task")
     corrupted_dep_trained_probe, corrupted_dep_valid_losses, corrupted_dep_valid_acc = train_dep_parsing(
