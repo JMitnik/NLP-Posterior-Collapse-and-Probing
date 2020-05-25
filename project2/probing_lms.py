@@ -30,6 +30,9 @@
 # Their library is well documented, and they provide great tools to easily load in pre-trained models.
 
 # %%
+import torch.nn as nn
+
+# %%
 # Custom Configuration|
 from config import Config
 
@@ -39,9 +42,9 @@ config: Config = Config(
     feature_model_type='LSTM',
     will_train_simple_probe=True,
     will_control_task_simple_prob=False,
-    will_train_structural_probe=True,
-    will_train_dependency_probe=False,
-    will_control_task_dependency_probe=False,
+    will_train_structural_probe=False,
+    will_train_dependency_probe=True,
+    will_control_task_dependency_probe=True,
     struct_probe_train_epoch=100,
     struct_probe_lr=0.001
 )
@@ -632,51 +635,8 @@ def plot_probe_validation_accs_by_modelfiles(filename_LSTM: str, filename_Transf
 # For our gold labels, we need to recover the node distances from our parse tree. For this we will use the functionality provided by `ete3`, that allows us to compute that directly. I have provided code that transforms a `TokenTree` to a `Tree` in `ete3` format.
 
 # %%
-# In case you want to transform your conllu tree to an nltk.Tree, for better visualisation
+from tools.tree_tools import tokentree_to_ete, tokentree_to_nltk, edges, create_mst
 
-def rec_tokentree_to_nltk(tokentree):
-    token = tokentree.token["form"]
-    tree_str = f"({token} {' '.join(rec_tokentree_to_nltk(t) for t in tokentree.children)})"
-
-    return tree_str
-
-
-def tokentree_to_nltk(tokentree):
-    from nltk import Tree as NLTKTree
-
-    tree_str = rec_tokentree_to_nltk(tokentree)
-
-    return NLTKTree.fromstring(tree_str)
-
-
-# %%
-# # !pip install ete3
-from ete3 import Tree as EteTree
-
-
-class FancyTree(EteTree):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, format=1, **kwargs)
-
-    def __str__(self):
-        return self.get_ascii(show_internal=True)
-
-    def __repr__(self):
-        return str(self)
-
-
-def rec_tokentree_to_ete(tokentree):
-    idx = str(tokentree.token["id"])
-    children = tokentree.children
-    if children:
-        return f"({','.join(rec_tokentree_to_ete(t) for t in children)}){idx}"
-    else:
-        return idx
-
-def tokentree_to_ete(tokentree):
-    newick_str = rec_tokentree_to_ete(tokentree)
-
-    return FancyTree(f"{newick_str};")
 
 
 # %% [markdown]
@@ -685,11 +645,9 @@ def tokentree_to_ete(tokentree):
 # To create the true distances of a parse tree in our treebank, we are going to use the `.get_distance` method that is provided by `ete3`: http://etetoolkit.org/docs/latest/tutorial/tutorial_trees.html#working-with-branch-distances
 #
 # We will store all these distances in a `torch.Tensor`.
-#
-# Please fill in the gap in the following method. I recommend you to have a good look at Hewitt's blog post  about these node distances.
 
 # %%
-def create_gold_distances(corpus) -> List[Tensor]:
+def create_struct_gold_distances(corpus) -> List[Tensor]:
     all_distances: List[Tensor] = []
 
     for sent in (corpus):
@@ -730,22 +688,22 @@ def create_gold_distances(corpus) -> List[Tensor]:
 # If your addition to the `create_gold_distances` method has been correct, you should be able to run the following snippet. This then shows you the original parse tree, the distances between the nodes, and the MST that is retrieved from these distances. Can you spot the edges in the MST matrix that correspond to the edges in the parse tree?
 
 # %%
-# item = corpus[5]
-# tokentree = item.to_tree()
-# ete3_tree = tokentree_to_ete(tokentree)
-# print(ete3_tree, '\n')
+# Read corpus,
+corpus = parse_corpus(config.path_to_data_train)
+sample_sent = corpus[5]
 
-# gold_distance = create_gold_distances(corpus[5:6])[0]
-# print(gold_distance, '\n')
+# Convert sentence to tree
+sample_tokentree = sample_sent.to_tree()
+sample_ete3_tree = tokentree_to_ete(sample_tokentree)
+print(ete3_tree, '\n')
 
-# mst = create_mst(gold_distance)
-# print(mst)
+# Extract gold-distance from sentence
+sample_gold_distance = create_struct_gold_distances([sample_sent])[0]
+print(gold_distance, '\n')
 
-# %%
-# Utility cell to play around with the values
-# all_edges = list(zip(mst.nonzero()[0], mst.nonzero()[1]))
-# all_edges = set(tuple(frozenset(sub)) for sub in set(all_edges))
-# all_edges
+# Transform gold-distance to minimum spanning tree
+sample_mst = create_mst(sample_gold_distance)
+print(sample_mst)
 
 # %% [markdown]
 # Now that we are able to map edge distances back to parse trees, we can create code for our quantitative evaluation. For this we will use the Undirected Unlabeled Attachment Score (UUAS), which is expressed as:
@@ -756,39 +714,18 @@ def create_gold_distances(corpus) -> List[Tensor]:
 #
 # You will write code that computes the UUAS score for a matrix of predicted distances, and the corresponding gold distances. I recommend you to split this up into 2 methods: 1 that retrieves the edges that are present in an MST matrix, and one general method that computes the UUAS score.
 
-# %%
-# 🏁
-# Utility function: check if edge is in set of edges
-
 # %% [markdown]
 # # Structural Probes
 #
-# We now have everything in place to start doing the actual exciting stuff: training our structural probe!
-#
-# To make life easier for you, we will simply take the `torch` code for this probe from John Hewitt's repository. This allows you to focus on the training regime from now on.
+# We will now train the structural probe. The Probing model used is founded on John Hewitt's source code.
 
 # %%
-import torch.nn as nn
-import torch
 from data_tools.datasets import ProbingDataset
-from torch.utils.data import DataLoader
+import numpy as np
 
-
-# %% [markdown]
-# I have provided a rough outline for the training regime that you can use. Note that the hyper parameters that I provide here only serve as an indication, but should be (briefly) explored by yourself.
-#
-# As can be seen in Hewitt's code above, there exists functionality in the probe to deal with batched input. It is up to you to use that: a (less efficient) method can still incorporate batches by doing multiple forward passes for a batch and computing the backward pass only once for the summed losses of all these forward passes. (_I know, this is not the way to go, but in the interest of time that is allowed ;-), the purpose of the assignment is writing a good paper after all_).
 
 # %%
 # Utility functions for dependency parsing
-import numpy as np
-
-get_parent_children_combo_from_tree = lambda tree: [
-    (i.up.name, (i.name))
-    for i in tokentree_to_ete(tree).search_nodes()
-    if i.up is not None
-]
-
 map_pc_combo_to_parent_edges = lambda id_idx_map, tuple_list: [(id_idx_map[int(i[0])], id_idx_map[int(i[1])]) for i in tuple_list]
 
 def create_gold_parent_distance_edges(corpus: List[TokenList]):
@@ -936,8 +873,6 @@ if config.will_train_structural_probe:
 
 # %% [markdown]
 # # Structural Probing Control Task
-# from runners.trainers import train_dep_parsing
-# from data_tools.dataloaders import custom_collate_fn
 
 # %%
 def create_corrupted_dep_vocab(use_sample: bool) -> Dict[str, str]:
