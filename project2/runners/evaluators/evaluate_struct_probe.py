@@ -24,7 +24,6 @@ def evaluate_struct_probe(probe, data_loader):
 
                 # Sentences with strange tokens, we ignore for the moment
                 if len(y) < 2:
-                    print(f"Encountered: null sentence at idx {idx}")
                     continue
 
                 pred_distances = probe(X)

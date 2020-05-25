@@ -25,8 +25,6 @@ def evaluate_dep_parsing(probe, data_loader):
                 pred = probe(valid_X).squeeze()
                            # Sentences with strange tokens, we ignore for the moment
                 if len(valid_y) < 2:
-                    print(f"Encountered: null sentence at idx {idx}")
-                    continue
 
                 # In case we will deal with the control task, decrease the parent by 1
                 sen_len = len(valid_y)

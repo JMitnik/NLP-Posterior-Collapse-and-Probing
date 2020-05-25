@@ -507,6 +507,7 @@ from tools.tree_tools import tokentree_to_ete, tokentree_to_nltk, edges, create_
 
 
 
+
 # %% [markdown]
 # As you can see we label a token by its token id (converted to a string). Based on these id's we are going to retrieve the node distances.
 #
@@ -667,3 +668,5 @@ if config.will_control_task_dependency_probe:
 
 if config.will_control_task_dependency_probe or config.will_train_dependency_probe:
     rw.write_results('dep_edge', config.feature_model_type, '', dep_probe_results)
+
+# %%

@@ -58,7 +58,6 @@ def train_dep_parsing(
                 pred = probe(train_X).squeeze()
 
                 if len(train_y) < 2:
-                    print(f"Encountered: null sentence")
                     continue
 
                 # In case we will deal with the control task, decrease the parent by 1
