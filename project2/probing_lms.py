@@ -45,7 +45,24 @@ from data_tools.target_extractors import create_corrupted_dep_vocab, create_stru
 # Custom Configuration|
 from config import Config
 
-config: Config = Config(
+sample_config: Config = Config(
+    run_label='sample_data',
+    uses_sample=False,
+    path_to_data_train='data/sample/en_ewt-ud-train.conllu',
+    path_to_data_valid='data/sample/en_ewt-ud-dev.conllu',
+    feature_model_type='LSTM',
+    will_train_simple_probe=True,
+    will_control_task_simple_prob=False,
+    will_train_structural_probe=False,
+    will_train_dependency_probe=False,
+    will_control_task_dependency_probe=True,
+    struct_probe_train_epoch=100,
+    dep_probe_train_epoch=1000,
+    struct_probe_lr=0.001
+)
+    
+    
+full_config: Config = Config(
     run_label='full_data',
     uses_sample=False,
     path_to_data_train='data/en_ewt-ud-train.conllu',
@@ -60,6 +77,8 @@ config: Config = Config(
     dep_probe_train_epoch=1000,
     struct_probe_lr=0.001
 )
+    
+config = sample_config
 
 # %%
 # We first load our feature models
@@ -262,21 +281,6 @@ def create_corrupted_tokens(use_sample: bool) -> Dict[str, str]:
 
     return corrupted_word_type
 
-# %%
-# Utility functions for transforming X and y to appropriate formats
-def transform_XY_to_concat_tensors(X: List[Tensor], y: List[Tensor]) -> Tuple[Tensor, Tensor]:
-    # X_concat = torch.cat([x.reshape(1) for x in X], dim=0)
-    X_concat = torch.cat(X, dim=0)
-    y_concat = torch.cat(y, dim=0)
-
-    return X_concat, y_concat
-
-def transform_XY_to_padded_tensors(X: List[Tensor], y: List[Tensor]) -> Tuple[Tensor, Tensor]:
-    X_padded = pad_sequence(X)
-    y_padded = pad_sequence(y)
-
-    return X_padded, y_padded
-
 # %% [markdown]
 # # Diagnostic Classification
 #
@@ -302,6 +306,8 @@ from skorch.callbacks import EpochScoring, Checkpoint, TrainEndCheckpoint, LoadI
 from skorch.dataset import Dataset
 from skorch.helper import predefined_split
 from skorch.history import History
+
+from data_tools.transforms import transform_XY_to_concat_tensors
 
 from tools.results_writer import ResultsWriter
 
@@ -368,6 +374,12 @@ if config.will_train_simple_probe:
     )
 
     net.fit(train_X, train_y)
+    
+    utils.save_model(
+        f'storage/saved_models/pos_probes/{config.run_label}_{config.feature_model_type}_pos_probe.pt',
+        net.module
+    )
+    
     print('Done Training Probe')
 
     # Get accuracy score
@@ -382,6 +394,12 @@ if config.will_train_simple_probe:
     pos_probe_results['validation_losses'] = validation_losses
     pos_probe_results['validation_accs'] = validation_accs
 
+
+# %%
+utils.save_model(
+    f'storage/saved_models/pos_probes/{config.run_label}_{config.feature_model_type}_pos_probe.pt',
+    net.module
+)
 
 # %% Train a corrupted prob classifier
 if config.will_control_task_simple_prob:
@@ -449,8 +467,8 @@ if config.will_control_task_simple_prob:
     pos_probe_results['corrupted_validation_accs'] = corrupted_validation_accs
     
     utils.save_model(
-        f'storage/saved_models/struct_probes/{config.label}_{config.feature_model_type}_struct_probe.pt',
-        struct_probe
+        f'storage/saved_models/pos_probes/{config.run_label}_{config.feature_model_type}_corrupted_struct_probe.pt',
+        corrupted_net.module
     )
 
 # Now write results at the end of the POS
@@ -466,7 +484,6 @@ sns.set_palette(sns.color_palette("BuGn_r"))
 sns.set_palette(sns.light_palette("navy", reverse=True))
 
 # %%
-
 def plot_probe_validation_accs(filename: str, model_type: str, column_names:dict):
     assert model_type in ['POS', 'Edge', 'Structural'], 'model type needs to be: POS, Edge or Structural.'
     assert 'val_accs_column' in column_names, 'Missing key(val_accs_column):value(...)'
@@ -595,9 +612,8 @@ if config.will_train_structural_probe:
         'probe_valid_uuas_scores': uuas
     }
     
-    
     utils.save_model(
-        f'storage/saved_models/struct_probes/{config.label}_{config.feature_model_type}_struct_probe.pt',
+        f'storage/saved_models/struct_probes/{config.run_label}_{config.feature_model_type}_struct_probe.pt',
         struct_probe
     )
 
@@ -610,9 +626,6 @@ if config.will_train_structural_probe:
 # In this part of the experimental setup, a different will be considered. To prevent any wrong conclusions based on ill-conceived ideas of control tasks for control tasks, a new task will be considered for this specific purpose. Based on John Hewitt and Percy Liang's work on 'Designing and Interpreting Probes with Control Tasks', this next task will consider a different the task of finding a node's parent, instead of finding all edges.
 #
 # This will be treated like a classificiation task, where given N potential nodes, the goal is to predict which of the N nodes is the parent, with Negative Log Likelihood as main loss function.
-
-# %%
-config.will_train_dependency_probe = True
 
 # %%
 # Initialize results for which we might want to write something
@@ -643,7 +656,7 @@ if config.will_train_dependency_probe:
     dep_probe_results['valid_acc'] = dep_valid_acc
     
     utils.save_model(
-        f'storage/saved_models/dep_edge_probes/{config.label}_{config.feature_model_type}_dep_edge_probe.pt',
+        f'storage/saved_models/dep_edge_probes/{config.run_label}_{config.feature_model_type}_dep_edge_probe.pt',
         dep_control_trained_probe
     )
     
@@ -684,7 +697,7 @@ if config.will_control_task_dependency_probe:
     dep_probe_results['corrupted_dep_valid_acc'] = dep_valid_acc
     
     utils.save_model(
-        f'storage/saved_models/dep_edge_probes/{config.label}_{config.feature_model_type}_dep_edge_control_probe.pt',
+        f'storage/saved_models/dep_edge_probes/{config.run_label}_{config.feature_model_type}_dep_edge_control_probe.pt',
         dep_control_trained_probe
     )
 
