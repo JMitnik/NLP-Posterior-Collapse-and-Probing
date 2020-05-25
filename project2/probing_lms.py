@@ -38,7 +38,7 @@ from config import Config
 
 config: Config = Config(
     run_label='full_data',
-    uses_sample=True,
+    uses_sample=False,
     feature_model_type='LSTM',
     will_train_simple_probe=True,
     will_control_task_simple_prob=False,
@@ -46,6 +46,7 @@ config: Config = Config(
     will_train_dependency_probe=True,
     will_control_task_dependency_probe=True,
     struct_probe_train_epoch=100,
+    dep_probe_train_epoch=1000,
     struct_probe_lr=0.001
 )
 
@@ -672,3 +673,5 @@ if config.will_control_task_dependency_probe:
 
 if config.will_control_task_dependency_probe or config.will_train_dependency_probe:
     rw.write_results('dep_edge', config.feature_model_type, '', dep_probe_results)
+
+# %%

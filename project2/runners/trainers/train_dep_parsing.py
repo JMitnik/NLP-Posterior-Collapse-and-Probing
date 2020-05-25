@@ -84,13 +84,15 @@ def train_dep_parsing(
         acc_scores.append(acc_score.item())
         valid_losses.append(valid_loss.item())
 
-        if valid_loss < lowest_loss:
+        if valid_loss.item() < lowest_loss:
+            print(f"New loss has been reached of {valid_loss.item()} being lower than lowest_loss {lowest_loss}")
             patience_counter = 0
-            valid_loss = lowest_loss
+            lowest_loss = float(valid_loss.item())
         elif patience_counter >= patience:
             print("Started to overfit, patience has been reached")
             break
         else:
+            print(f"...are we overfitting? Setting patience_counter to {patience_counter + 1}")
             patience_counter += 1
 
 
