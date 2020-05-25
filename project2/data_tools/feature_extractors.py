@@ -65,9 +65,16 @@ def fetch_sen_repr_transformer(corpus: List[TokenList], trans_model, tokenizer) 
         # Concatenate the subwords and feed to model
         with torch.no_grad():
             inp = torch.cat(tokenized)
+
+            if len(inp.shape) == 1:
+                inp = inp.unsqueeze(0)
+
             out = trans_model(inp)
 
         h_states = out[0]
+
+        if len(h_states.shape) == 3:
+            h_states = h_states.squeeze(0)
 
         # Form output per token by averaging over all subwords
         result = []

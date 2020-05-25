@@ -1,4 +1,5 @@
 import torch
+from transformers import GPT2Model, GPT2Tokenizer, XLMRobertaModel, XLMRobertaTokenizer
 import torch.nn as nn
 from typing import Dict, Tuple
 from models.lstm.model import RNNModel
@@ -24,3 +25,17 @@ def make_pretrained_lstm_and_tokenizer(
     vocab.update(w2i)
 
     return lstm, vocab
+
+def make_pretrained_transformer_and_tokenizer(
+    transformer_name: str
+):
+    if 'distilgpt2' in transformer_name:
+        print("DistilGPT2!")
+        model = GPT2Model.from_pretrained('distilgpt2')
+        tokenizer = GPT2Tokenizer.from_pretrained('distilgpt2')
+    else:
+        print(f"Loading {transformer_name}!")
+        model = XLMRobertaModel.from_pretrained(transformer_name)
+        tokenizer = XLMRobertaTokenizer.from_pretrained(transformer_name)
+
+    return model, tokenizer

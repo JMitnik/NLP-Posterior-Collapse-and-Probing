@@ -50,46 +50,18 @@ config: Config = Config(
 )
 
 # %%
-#
-## Your code for initializing the transformer model(s)
-#
-# Note that most transformer models use their own `tokenizer`, that should be loaded in as well.
-#
-from transformers import GPT2Model, GPT2Tokenizer
+from models.model_inits import make_pretrained_lstm_and_tokenizer
 
-# 🏁
+# The Gulordava LSTM model can be found here:
+# https://drive.google.com/open?id=1w47WsZcZzPyBKDn83cMNd0Hb336e-_Sy
+
+# Initializing the LSTM
+lstm, lstm_vocab = make_pretrained_lstm_and_tokenizer()
+
+# Initializing the Transformer
 trans_model_type: str = config.feature_model_type if config.feature_model_type is not 'LSTM' else config.default_trans_model_type
 trans_model = GPT2Model.from_pretrained(trans_model_type)
 trans_tokenizer = GPT2Tokenizer.from_pretrained(trans_model_type)
-
-# Note that some models don't return the hidden states by default.
-# This can be configured by passing `output_hidden_states=True` to the `from_pretrained` method.
-
-# %%
-#
-## Your code for initializing the rnn model(s)
-#
-# The Gulordava LSTM model can be found here:
-# https://drive.google.com/open?id=1w47WsZcZzPyBKDn83cMNd0Hb336e-_Sy
-#
-# N.B: I have altered the RNNModel code to only output the hidden states that you are interested in.
-# If you want to do more experiments with this model you could have a look at the original code here:
-# https://github.com/facebookresearch/colorlessgreenRNNs/blob/master/src/language_models/model.py
-#
-from collections import defaultdict
-from models.lstm.model import RNNModel
-import torch
-
-model_location = config.path_to_pretrained_lstm  # <- point this to the location of the Gulordava .pt file
-lstm = RNNModel('LSTM', 50001, 650, 650, 2)
-lstm.load_state_dict(torch.load(model_location))
-
-# This LSTM does not use a Tokenizer like the Transformers, but a Vocab dictionary that maps a token to an id.
-with open('models/lstm/vocab.txt') as f:
-    w2i = {w.strip(): i for i, w in enumerate(f)}
-
-vocab = defaultdict(lambda: w2i["<unk>"])
-vocab.update(w2i)
 
 # %% [markdown]
 # It is a good idea that before you move on, you try to feed some text to your LMs; and check if everything works accordingly.
