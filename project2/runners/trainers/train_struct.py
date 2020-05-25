@@ -5,8 +5,9 @@ from torch.nn import NLLLoss
 import torch.optim as optim
 from config import Config
 from torch.utils.data import DataLoader
-from models.probes import TwoWordBilinearLabelProbe
-from models.losses import L
+from models.probes import StructuralProbe
+from models.losses import L1DistanceLoss
+from runners.evaluators import evaluate_struct_probe
 
 def train_struct(
     train_dataloader: DataLoader,
@@ -53,7 +54,7 @@ def train_struct(
 
         # Calculate validation scores
         # TODO: Double-check that the UUAS works
-        valid_loss, valid_uuas = evaluate_probe(probe, valid_dataloader)
+        valid_loss, valid_uuas = evaluate_struct_probe(probe, valid_dataloader)
         valid_losses.append(valid_loss.item())
         valid_uuas_scores.append(valid_uuas.item())
 

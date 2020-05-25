@@ -35,9 +35,9 @@ from config import Config
 
 config: Config = Config(
     run_label='full_data',
-    uses_sample=False,
+    uses_sample=True,
     feature_model_type='LSTM',
-    will_train_simple_probe=False,
+    will_train_simple_probe=True,
     will_control_task_simple_prob=False,
     will_train_structural_probe=True,
     will_train_dependency_probe=False,
@@ -377,8 +377,6 @@ def create_corrupted_tokens(use_sample: bool) -> Dict[str, str]:
 corrupted_pos_tags: Dict[str, str] = create_corrupted_tokens(use_sample)
 
 # %%
-
-# %%
 # Utility functions for transforming X and y to appropriate formats
 def transform_XY_to_concat_tensors(X: List[Tensor], y: List[Tensor]) -> Tuple[Tensor, Tensor]:
     # X_concat = torch.cat([x.reshape(1) for x in X], dim=0)
@@ -407,47 +405,11 @@ def transform_XY_to_padded_tensors(X: List[Tensor], y: List[Tensor]) -> Tuple[Te
 # As this is an Artificial Intelligence master and you have all done ML1 + DL, I expect you to use your train/dev/test splits correctly ;-)
 
 # %%
-import torch.nn as nn
-import torch.nn.functional as F
-
-# 🏁
-# Simple Linear Model
-class SimpleProbe(nn.Module):
-    def __init__(
-        self,
-        embedding_dim,
-        out_dim
-    ):
-        super().__init__()
-        self.h2out = nn.Linear(embedding_dim, out_dim)
-        self.softmax = nn.Softmax(dim=1)
-
-    def forward(self, X):
-        logits = self.h2out(X)
-
-        return self.softmax(logits)
-
-class ML1Probe(nn.Module):
-    def __init__(
-        self,
-        embedding_dim,
-        out_dim
-    ):
-        super().__init__()
-        self.h1 = nn.Linear(embedding_dim, 300)
-        self.output = nn.Linear(300, out_dim)
-
-    def forward(self, X):
-        X = F.relu(self.h1(X))
-        X = F.softmax(self.output(X))
-        return X
-
-# TODO: Make a non-linear MLP-1 Model, should have a lower selectivity
-# %%
 # DIAGNOSTIC CLASSIFIER
 # 🏁
 # %reload_ext autoreload
 # %autoreload 2
+from models.probes import SimpleProbe
 
 from skorch import NeuralNetClassifier
 from skorch.callbacks import EpochScoring, Checkpoint, TrainEndCheckpoint, LoadInitState, EarlyStopping
@@ -535,16 +497,6 @@ if config.will_train_simple_probe:
     pos_probe_results['validation_accs'] = validation_accs
 
 
-# %%
-# A quick test to check the accuracy of the probe
-#concat_test_X, concat_test_Y = transform_XY_to_concat_tensors(test_x, test_y)
-# import numpy as np
-#
-# test_X, test_y = transform_XY_to_concat_tensors(test_data_X, test_data_y)
-
-# predictions = net.predict(test_X)
-
-
 # %% Train a corrupted prob classifier
 if config.will_control_task_simple_prob:
     corrupted_train_data_X, corrupted_train_data_y, corrupted_train_vocab = create_data(
@@ -568,15 +520,6 @@ if config.will_control_task_simple_prob:
     vocab_size = len(corrupted_train_vocab)#17
 
     probe: nn.Module = SimpleProbe(
-        embedding_size,
-        vocab_size
-    )
-
-    corrupted_train_X, corrupted_train_y = transform_XY_to_concat_tensors(corrupted_train_data_X, corrupted_train_data_y)
-    corrupted_valid_X, corrupted_valid_y = transform_XY_to_concat_tensors(corrupted_valid_data_X, corrupted_valid_data_y)
-    corrupted_valid_ds = Dataset(corrupted_valid_X, corrupted_valid_y)
-
-    corrupted_probe: nn.Module = SimpleProbe(
         embedding_size,
         vocab_size
     )
@@ -734,17 +677,6 @@ def tokentree_to_ete(tokentree):
     newick_str = rec_tokentree_to_ete(tokentree)
 
     return FancyTree(f"{newick_str};")
-
-
-# %%
-# Let's check if it works!
-# We can read in a corpus using the code that was already provided, and convert it to an ete3 Tree.
-# corpus = parse_corpus('data/sample/en_ewt-ud-train.conllu')
-# sent = corpus[0]
-# tokentree = sent.to_tree()
-
-# ete3_tree = tokentree_to_ete(tokentree)
-# print(ete3_tree)
 
 
 # %% [markdown]
@@ -938,6 +870,8 @@ def create_gold_parent_distance_idxs_only(
 # create_gold_parent_distance_idxs_only(sample_corpus, True)
 
 # %%
+from data_tools.dataloaders import custom_collate_fn
+
 def init_corpus(path, model=model, tokenizer=w2i, concat=False, cutoff=None, use_dependencies=False, corrupted=False, dep_vocab=None):
     """
     Initialises the data of a corpus.
@@ -957,9 +891,7 @@ def init_corpus(path, model=model, tokenizer=w2i, concat=False, cutoff=None, use
     corpus: List[TokenList] = parse_corpus(path)[:cutoff]
 
     embs: List[Tensor] = fetch_sen_reps(corpus, model, tokenizer, concat=concat)
-#     max_length_size = embs.shape[0]
 
-#     embs = embs.reshape(corpus_size, max_length_size, -1)
     if not use_dependencies:
         gold_distances = create_gold_distances(corpus)
     else:
@@ -982,9 +914,6 @@ def init_dataloader_sequential(path: str, batch_size: int, cutoff=None) -> DataL
     return data_loader
 
 # %%
-# Prep data-loaders
-
-# %%
 from runners.trainers import train_struct
 from torch import optim
 
@@ -1004,10 +933,11 @@ if config.will_train_structural_probe:
 
     rw.write_results('struct', config.feature_model_type, '', struct_probe_results)
 
+
 # %% [markdown]
 # # Structural Probing Control Task
-from runners.trainers import train_dep_parsing
-from data_tools.dataloaders import custom_collate_fn
+# from runners.trainers import train_dep_parsing
+# from data_tools.dataloaders import custom_collate_fn
 
 # %%
 def create_corrupted_dep_vocab(use_sample: bool) -> Dict[str, str]:

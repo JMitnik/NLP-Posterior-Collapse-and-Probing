@@ -1,1 +1,2 @@
 from .evaluate_dep_parsing import evaluate_dep_parsing
+from .evaluate_struct_probe import evaluate_struct_probe
