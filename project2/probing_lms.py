@@ -447,6 +447,11 @@ if config.will_control_task_simple_prob:
     corrupted_validation_accs = corrupted_history[:,'valid_acc']
     pos_probe_results['corrupted_validation_losses'] = corrupted_validation_losses
     pos_probe_results['corrupted_validation_accs'] = corrupted_validation_accs
+    
+    utils.save_model(
+        f'storage/saved_models/struct_probes/{config.label}_{config.feature_model_type}_struct_probe.pt',
+        struct_probe
+    )
 
 # Now write results at the end of the POS
 if config.will_train_simple_probe or config.will_control_task_simple_prob:
@@ -503,9 +508,6 @@ def plot_probe_validation_accs_by_modelfiles(filename_LSTM: str, filename_Transf
 
 # %%
 from tools.tree_tools import tokentree_to_ete, tokentree_to_nltk, edges, create_mst
-
-
-
 
 
 # %% [markdown]
@@ -579,7 +581,7 @@ if config.will_train_structural_probe:
         feature_model_tokenizer=w2i,
     )
 
-    probe, losses, uuas = train_struct(
+    struct_probe, losses, uuas = train_struct(
         train_dataloader,
         valid_dataloader,
         nr_epochs=config.struct_probe_train_epoch,
@@ -592,6 +594,12 @@ if config.will_train_structural_probe:
         'probe_valid_losses': losses,
         'probe_valid_uuas_scores': uuas
     }
+    
+    
+    utils.save_model(
+        f'storage/saved_models/struct_probes/{config.label}_{config.feature_model_type}_struct_probe.pt',
+        struct_probe
+    )
 
     rw.write_results('struct', config.feature_model_type, '', struct_probe_results)
 
@@ -604,8 +612,11 @@ if config.will_train_structural_probe:
 # This will be treated like a classificiation task, where given N potential nodes, the goal is to predict which of the N nodes is the parent, with Negative Log Likelihood as main loss function.
 
 # %%
+config.will_train_dependency_probe = True
+
+# %%
 # Initialize results for which we might want to write something
-dep_probe_results = defaultdict(list)
+# dep_probe_results = defaultdict(list)
 
 if config.will_train_dependency_probe:
     print("Loading datasets for Dependency parsing")
@@ -630,6 +641,12 @@ if config.will_train_dependency_probe:
     # We then store some results
     dep_probe_results['valid_losses'] = dep_valid_losses
     dep_probe_results['valid_acc'] = dep_valid_acc
+    
+    utils.save_model(
+        f'storage/saved_models/dep_edge_probes/{config.label}_{config.feature_model_type}_dep_edge_probe.pt',
+        dep_control_trained_probe
+    )
+    
 
 # %%
 from data_tools.data_inits import parse_all_corpora
@@ -654,7 +671,7 @@ if config.will_control_task_dependency_probe:
     )
 
     print("Starting training for Dependency parsing - Control Task")
-    dep_trained_probe, dep_valid_losses, dep_valid_acc = train_dep_parsing(
+    dep_control_trained_probe, dep_valid_losses, dep_valid_acc = train_dep_parsing(
         train_dataloader,
         valid_dataloader,
         feature_dim=config.feature_model_dimensionality,
@@ -665,8 +682,16 @@ if config.will_control_task_dependency_probe:
 
     dep_probe_results['corrupted_valid_losses'] = dep_valid_losses
     dep_probe_results['corrupted_dep_valid_acc'] = dep_valid_acc
+    
+    utils.save_model(
+        f'storage/saved_models/dep_edge_probes/{config.label}_{config.feature_model_type}_dep_edge_control_probe.pt',
+        dep_control_trained_probe
+    )
 
+
+# %%
 if config.will_control_task_dependency_probe or config.will_train_dependency_probe:
     rw.write_results('dep_edge', config.feature_model_type, '', dep_probe_results)
 
 # %%
+from tools import utils
