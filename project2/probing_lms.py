@@ -82,7 +82,7 @@ lstm = RNNModel('LSTM', 50001, 650, 650, 2)
 lstm.load_state_dict(torch.load(model_location))
 
 # This LSTM does not use a Tokenizer like the Transformers, but a Vocab dictionary that maps a token to an id.
-with open('lstm/vocab.txt') as f:
+with open('models/lstm/vocab.txt') as f:
     w2i = {w.strip(): i for i, w in enumerate(f)}
 
 vocab = defaultdict(lambda: w2i["<unk>"])
