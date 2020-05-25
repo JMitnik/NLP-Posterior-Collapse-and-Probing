@@ -106,17 +106,7 @@ vocab.update(w2i)
 # %%
 from typing import Callable, Dict, List, Optional, Union
 from conllu import parse_incr, TokenList
-
-def parse_corpus(filename: str) -> List[TokenList]:
-    """
-    Parses a file into a collection of TokenLists
-    """
-    data_file = open(filename, encoding="utf-8")
-
-    ud_parses = list(parse_incr(data_file))
-
-    return ud_parses
-
+from data_tools.data_inits import parse_corpus
 
 # %%
 # 🏁
@@ -153,99 +143,12 @@ get_ids_from_sent: Callable[[TokenList], List[str]] = lambda sent: [word['id'] f
 # I would like to stress that if you feel hindered in any way by the simple code structure that is presented here, you are free to modify it :-) Just make sure it is clear to an outsider what you're doing, some helpful comments never hurt.
 
 # %%
-# 🏁
-
-from typing import List, DefaultDict
-from torch.nn.utils.rnn import pad_sequence
-from torch import Tensor
-
-# 🏁
-### LSTM FETCH SEN REPR
-def fetch_sen_repr_lstm(corpus: List[TokenList], lstm, tokenizer) -> List[Tensor]:
-    # TODO: vocab returns the 0 token for the word "She", and now we pad with 0's. We may want to add 1 for every token so these don't overlap
-    sentences_tokenized = []
-    lstm.eval()
-    for sent in corpus:
-        tokenized  = torch.tensor([tokenizer[word] for word in get_tokens_from_sent(sent)])
-        sentences_tokenized.append(tokenized)
-
-    representations = []
-    with torch.no_grad():
-        hidden = lstm.init_hidden(1) # outputs an initial hidden state of zeros
-        for sent in sentences_tokenized:
-            output = lstm(sent.unsqueeze(0), hidden).squeeze() # Get state activation
-            if output.shape[0] == 650:
-                output = output.view(1,650)
-            representations.append(output)
-
-    return representations
-
-### Transformer FETCH SEN REPR
-def fetch_sen_repr_transformer(corpus: List[TokenList], trans_model, tokenizer) -> List[Tensor]:
-    trans_model.eval() # set model in eval mode
-    corpus_result = []
-
-    for sent in corpus:
-        add_space = False
-        tokenized: List[Tensor] = []
-        for i, w in enumerate(get_tokens_from_sent(sent)):
-            if add_space == False:
-                tokenized.append(torch.tensor(tokenizer.encode(w)))
-            else:
-                tokenized.append(torch.tensor(tokenizer.encode(" " + w)))
-
-            if sent[i]['misc'] == None:
-                add_space = True
-            else:
-                add_space = False
-
-        # get the amount of tokens per word
-        subwords_per_token: List[int] = [len(token_list) for (token_list) in tokenized]
-
-        # Concatenate the subwords and feed to model
-        with torch.no_grad():
-            inp = torch.cat(tokenized)
-            out = trans_model(inp)
-
-        h_states = out[0]
-
-        # Form output per token by averaging over all subwords
-        result = []
-        current_idx = 0
-        for nr_tokens in subwords_per_token:
-            subword_range = (current_idx, current_idx + nr_tokens)
-            current_idx += nr_tokens
-            word_hidden_states = h_states[subword_range[0]:subword_range[1], :]
-            token_tensor = word_hidden_states.mean(0)
-
-            result.append(token_tensor)
-
-        output_tokens = torch.stack(result)
-
-        # Test shape output
-        assert output_tokens.shape[0] is len(tokenized)
-
-        corpus_result.append(output_tokens)
-
-    return corpus_result
-
-
-# %%
 # FETCH SENTENCE REPRESENTATIONS
 from torch import Tensor
 import pickle
+from data_tools.feature_extractors import fetch_sen_reps
 
-# Should return a tensor of shape (num_tokens_in_corpus, representation_size)
-# Make sure you correctly average the subword representations that belong to 1 token!
-
-def fetch_sen_reps(ud_parses: List[TokenList], model, tokenizer, concat=False) -> List[Tensor]:
-    if 'RNN' in type(model).__name__:
-        return fetch_sen_repr_lstm(ud_parses, model, tokenizer)
-
-    return fetch_sen_repr_transformer(ud_parses, model, tokenizer)
-
-# I provide the following sanity check, that compares your representations against a pickled version of mine.
-# Note that I use the DistilGPT-2 LM here. For the LSTM I used 0-valued initial states.
+# A sanity check was provided by the supervisor of this project, to compare representations with a 'gold standard'.
 def assert_sen_reps(transformer_model, transformer_tokenizer, lstm_model, lstm_tokenizer):
     with open('lstm_emb1.pickle', 'rb') as f:
         lstm_emb1: torch.Tensor = pickle.load(f)
@@ -646,37 +549,6 @@ from tools.tree_tools import tokentree_to_ete, tokentree_to_nltk, edges, create_
 #
 # We will store all these distances in a `torch.Tensor`.
 
-# %%
-def create_struct_gold_distances(corpus) -> List[Tensor]:
-    all_distances: List[Tensor] = []
-
-    for sent in (corpus):
-        tokentree = sent.to_tree()
-        ete_tree = tokentree_to_ete(tokentree)
-
-        sen_len = len(ete_tree.search_nodes())
-        distances = torch.zeros((sen_len, sen_len))
-
-        # 🏁
-        token_ids = get_ids_from_sent(sent)
-
-        # Go over all the token ids, as row and as columns
-        for i, token_id_A in enumerate(token_ids):
-            for j, token_id_B in enumerate(token_ids):
-
-                # Set distance to 0 if they are equal
-                if token_id_A == token_id_B:
-                    distances[i, j] = 0
-                else:
-                    # Else use `.get_distance` to calculate the distance for row A and column B
-                    A = str(token_id_A)
-                    B = str(token_id_B)
-                    distances[i, j] = ete_tree.get_distance(A, B)
-
-        all_distances.append(distances)
-
-    return all_distances
-
 # %% [markdown]
 # The next step is now to do the previous step the other way around. After all, we are mainly interested in predicting the node distances of a sentence, in order to recreate the corresponding parse tree.
 #
@@ -725,122 +597,10 @@ import numpy as np
 
 
 # %%
-# Utility functions for dependency parsing
-map_pc_combo_to_parent_edges = lambda id_idx_map, tuple_list: [(id_idx_map[int(i[0])], id_idx_map[int(i[1])]) for i in tuple_list]
-
-def create_gold_parent_distance_edges(corpus: List[TokenList]):
-    """
-    Assigns for each sentence, a 1 for child (row) to parent (column).
-    """
-    all_edges: List[Tensor] = []
-
-    for sent in corpus:
-        sent_tree = sent.to_tree()
-        sent_id2idx = {i['id']: idx for idx, i in enumerate(sent)}
-
-        # Calculate tuples of (parent, child), and then map their ID to their respective indices
-        parent_child_tuples = get_parent_children_combo_from_tree(sent_tree)
-        parent_child_tuples = map_pc_combo_to_parent_edges(sent_id2idx, parent_child_tuples)
-
-        # Initialize our matrix
-        sen_len = len(sent)
-        distances = torch.zeros((sen_len, sen_len))
-
-        for parent_edge in parent_child_tuples:
-            parent_idx, child_idx = parent_edge
-            distances[child_idx, parent_idx] = 1
-
-        all_edges.append(distances)
-
-    return all_edges
-
-def create_gold_parent_distance_idxs_only(
-    corpus: List[TokenList],
-    corrupted: bool = False,
-    vocab: Dict[str, int] = None
-) -> List[Tuple[Tensor, int]]:
-    """
-    Assigns for each sentence the index of the parent node.
-    If node is -1, then that node has no parent (should be ignored).
-
-    Input:
-        - corpus: list of TokenLists
-    Output:
-        List of tuple(gold indices of parent, index of root)
-    """
-    all_edges: List[Tuple[Tensor, int]] = []
-
-    print(len(corpus))
-
-    for sent in corpus:
-        sent_tree = sent.to_tree()
-        sent_id2idx = {i['id']: idx for idx, i in enumerate(sent)}
-
-        # Calculate tuples of (parent, child), and then map their ID to their respective indices
-        parent_child_tuples = get_parent_children_combo_from_tree(sent_tree)
-        parent_child_tuples = map_pc_combo_to_parent_edges(sent_id2idx, parent_child_tuples)
-
-        # Initialize our matrix
-        sen_len = len(sent)
-        edges = torch.zeros((sen_len))
-
-        root_idx = sent_id2idx[sent_tree.token['id']]
-
-        # For each edge, assign in the corresponding index the parent index, and -1 for root
-        for parent_edge in parent_child_tuples:
-            parent_idx, child_idx = parent_edge
-
-            if corrupted:
-                corrupted_choices = [0, child_idx, sen_len]
-                child_token = sent[child_idx]['form']
-                corrupted_choice_idx = vocab[child_token]
-                edges[child_idx] = corrupted_choices[corrupted_choice_idx]
-            else:
-                edges[child_idx] = parent_idx
-
-            edges[root_idx] = -1
-
-        all_edges.append((edges, root_idx))
-
-    return all_edges
-
-# create_gold_parent_distance_idxs_only(sample_corpus, True)
-
-# %%
 from data_tools.dataloaders import custom_collate_fn
 
-def init_corpus(path, model=model, tokenizer=w2i, concat=False, cutoff=None, use_dependencies=False, corrupted=False, dep_vocab=None):
-    """
-    Initialises the data of a corpus.
-
-    Parameters
-    ----------
-    path : str
-        Path to corpus location
-    concat : bool, optional
-        Optional toggle to concatenate all the tensors
-        returned by `fetch_sen_reps`.
-    cutoff : int, optional
-        Optional integer to "cutoff" the data in the corpus.
-        This allows only a subset to be used, alleviating
-        memory usage.
-    """
-    corpus: List[TokenList] = parse_corpus(path)[:cutoff]
-
-    embs: List[Tensor] = fetch_sen_reps(corpus, model, tokenizer, concat=concat)
-
-    if not use_dependencies:
-        gold_distances = create_gold_distances(corpus)
-    else:
-        if dep_vocab is None:
-            raise Exception('Need to pass `dep_vocab` as well!')
-
-        gold_distances = create_gold_parent_distance_idxs_only(corpus, corrupted, dep_vocab)
-
-    return gold_distances, embs
-
 def init_dataloader_sequential(path: str, batch_size: int, cutoff=None) -> DataLoader:
-    y, X = init_corpus(path)
+    y, X = init_tree_corpus(path)
     dataset = ProbingDataset(X, y)
     data_loader = DataLoader(
         dataset=dataset,
@@ -905,11 +665,11 @@ corrupted_dep_vocab: Dict[str, str] = create_corrupted_dep_vocab(use_sample)
 # Prep dataset yet again
 if config.will_train_dependency_probe:
     print("Prepping datasets for Dependency parsing")
-    train_data_raw = init_corpus(config.path_to_data_train, use_dependencies=True, dep_vocab=corrupted_dep_vocab)
+    train_data_raw = init_tree_corpus(config.path_to_data_train, use_dependencies=True, dep_vocab=corrupted_dep_vocab)
     train_dataset = ProbingDataset(train_data_raw[1], train_data_raw[0])
     train_dataloader = DataLoader(train_dataset, batch_size=8, collate_fn=custom_collate_fn)
 
-    valid_data_raw = init_corpus(config.path_to_data_valid, use_dependencies=True, dep_vocab=corrupted_dep_vocab)
+    valid_data_raw = init_tree_corpus(config.path_to_data_valid, use_dependencies=True, dep_vocab=corrupted_dep_vocab)
     valid_dataset = ProbingDataset(valid_data_raw[1], valid_data_raw[0])
     valid_dataloader = DataLoader(valid_dataset, batch_size=8, collate_fn=custom_collate_fn)
 

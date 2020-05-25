@@ -92,3 +92,17 @@ def get_parent_children_combo_from_tree(tokentree) -> List[Tuple[str, str]]:
             )
 
     return result
+
+def parentchild_ids_to_idx(id_idx_map, combo_tuple_list):
+    """
+    Maps parent-child ids based on CONLLU to indices.
+    """
+    result = []
+
+    for parent_child_combo in combo_tuple_list:
+        parent_node_idx = id_idx_map[int(parent_child_combo[0])]
+        child_node_idx = id_idx_map[int(parent_child_combo[1])]
+
+        result.append((parent_node_idx, child_node_idx))
+
+    return result
