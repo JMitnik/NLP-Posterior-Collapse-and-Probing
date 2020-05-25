@@ -1,5 +1,6 @@
 from data_tools.target_extractors import create_dep_parent_gold_distances, create_struct_gold_distances
 from typing import List
+import os
 from torch import Tensor
 from conllu import TokenList, parse_incr
 
@@ -11,6 +12,15 @@ def parse_corpus(filename: str) -> List[TokenList]:
     """
     data_file = open(filename, encoding="utf-8")
     ud_parses = list(parse_incr(data_file))
+
+    return ud_parses
+
+def parse_all_corpora(use_sample):
+    ud_parses = []
+    for set_type in ['train', 'dev', 'test']:
+        filename = os.path.join('data', 'sample' if use_sample else '', f'en_ewt-ud-{set_type}.conllu')
+
+        ud_parses += (parse_corpus(filename))
 
     return ud_parses
 
@@ -45,8 +55,8 @@ def init_tree_corpus(
     if not use_dependencies:
         gold_distances = create_struct_gold_distances(corpus)
     else:
-        if dep_vocab is None:
-            raise Exception('Need to pass `dep_vocab` as well!')
+        if use_corrupted and dep_vocab is None:
+            raise Exception('You should provide a vocabulary with these indices.')
 
         gold_distances = create_dep_parent_gold_distances(corpus, use_corrupted, dep_vocab)
 

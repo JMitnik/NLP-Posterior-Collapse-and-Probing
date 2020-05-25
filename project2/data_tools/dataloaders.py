@@ -17,7 +17,8 @@ def make_struct_dataloaders(
     valid_batch_size = 1,
     use_dependencies: bool = False,
     use_corrupted: bool = False,
-    use_shuffled_dataset: bool = False
+    use_shuffled_dataset: bool = False,
+    corruped_vocab = None
 ) -> Tuple[DataLoader, DataLoader]:
     # Make training data-loader
     train_X, train_y = init_tree_corpus(
@@ -25,7 +26,8 @@ def make_struct_dataloaders(
         feature_model,
         feature_model_tokenizer,
         use_dependencies=use_dependencies,
-        use_corrupted=use_corrupted
+        use_corrupted=use_corrupted,
+        dep_vocab=corruped_vocab
     )
     train_dataset = ProbingDataset(train_X, train_y)
     train_dataloader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=use_shuffled_dataset, collate_fn=custom_collate_fn)
@@ -36,7 +38,8 @@ def make_struct_dataloaders(
         feature_model,
         feature_model_tokenizer,
         use_dependencies=use_dependencies,
-        use_corrupted=use_corrupted
+        use_corrupted=use_corrupted,
+        dep_vocab=corruped_vocab
     )
     valid_dataset = ProbingDataset(valid_X, valid_y)
     valid_dataloader = DataLoader(valid_dataset, batch_size=valid_batch_size, shuffle=use_shuffled_dataset, collate_fn=custom_collate_fn)

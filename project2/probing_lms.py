@@ -50,6 +50,7 @@ config: Config = Config(
 )
 
 # %%
+# We first load our feature models
 from models.model_inits import make_pretrained_lstm_and_tokenizer
 
 # The Gulordava LSTM model can be found here:
@@ -62,9 +63,6 @@ lstm, lstm_vocab = make_pretrained_lstm_and_tokenizer()
 trans_model_type: str = config.feature_model_type if config.feature_model_type is not 'LSTM' else config.default_trans_model_type
 trans_model = GPT2Model.from_pretrained(trans_model_type)
 trans_tokenizer = GPT2Tokenizer.from_pretrained(trans_model_type)
-
-# %% [markdown]
-# It is a good idea that before you move on, you try to feed some text to your LMs; and check if everything works accordingly.
 
 # %% [markdown]
 # # Data
@@ -562,6 +560,8 @@ print(sample_mst)
 # # Structural Probes
 #
 # We will now train the structural probe. The Probing model used is founded on John Hewitt's source code.
+#
+# For this task, we will make use of the `train_struct` function as main training loop, located in `runners/trainers`. Furthermore, the `make_struct_dataloaders` will initialize the dataloaders with the features again as X, and correct edge distances as `y`.
 
 # %%
 from data_tools.datasets import ProbingDataset
@@ -569,42 +569,44 @@ import numpy as np
 
 
 # %%
-from data_tools.dataloaders import custom_collate_fn
-
-def init_dataloader_sequential(path: str, batch_size: int, cutoff=None) -> DataLoader:
-    y, X = init_tree_corpus(path)
-    dataset = ProbingDataset(X, y)
-    data_loader = DataLoader(
-        dataset=dataset,
-        collate_fn=custom_collate_fn,
-        batch_size=batch_size
-    )
-
-    return data_loader
-
-# %%
 from runners.trainers import train_struct
-from torch import optim
+from models.model_inits import make_pretrained_lstm_and_tokenizer, make_pretrained_transformer_and_tokenizer
+from data_tools.dataloaders import make_struct_dataloaders
 
+# We will train the structural probe if `config.will_train_structural_probe` allows it.
 if config.will_train_structural_probe:
     print("Loading in data for structural probe!")
-    train_dataloader = init_dataloader_sequential(config.path_to_data_train, config.struct_probe_train_batch_size)
-    valid_dataloader = init_dataloader_sequential('data/sample/en_ewt-ud-dev.conllu', 1)
-
-    print("Starting training for structural probe!")
-    trained_probe, valid_losses, valid_uuas_scores = train_struct(train_dataloader, valid_dataloader, config)
-    print("Finished training for structural probe!")
+    train_dataloader, valid_dataloader = make_struct_dataloaders(
+        path_to_train=config.path_to_data_train,
+        path_to_valid=config.path_to_data_valid,
+        feature_model=model,
+        feature_model_tokenizer=w2i,
+    )
+    
+    probe, losses, uuas = train_struct(
+        train_dataloader,
+        valid_dataloader,
+        nr_epochs=config.struct_probe_train_epoch,
+        struct_emb_dim=embedding_size,
+        struct_lr=config.struct_probe_lr,
+        struct_rank=config.struct_probe_rank,
+    )
 
     struct_probe_results = {
-        'probe_valid_losses': valid_losses,
-        'probe_valid_uuas_scores': valid_uuas_scores
+        'probe_valid_losses': losses,
+        'probe_valid_uuas_scores': uuas
     }
 
     rw.write_results('struct', config.feature_model_type, '', struct_probe_results)
 
 
 # %% [markdown]
-# # Structural Probing Control Task
+# # Dependency Probing Parent Task
+
+# %% [markdown]
+# In this part of the experimental setup, a different will be considered. To prevent any wrong conclusions based on ill-conceived ideas of control tasks for control tasks, a new task will be considered for this specific purpose. Based on John Hewitt and Percy Liang's work on 'Designing and Interpreting Probes with Control Tasks', this next task will consider a different the task of finding a node's parent, instead of finding all edges. 
+#
+# This will be treated like a classificiation task, where given N potential nodes, the goal is to predict which of the N nodes is the parent, with Negative Log Likelihood as main loss function.
 
 # %%
 def create_corrupted_dep_vocab(use_sample: bool) -> Dict[str, str]:
@@ -634,7 +636,7 @@ dep_probe_results = defaultdict(list)
 # Get out corrupted pos tokens for each word type
 corrupted_dep_vocab: Dict[str, str] = create_corrupted_dep_vocab(use_sample)
 
-# Prep dataset yet again
+# We will train the parent dependency probe if `config.will_train_dependency_probe` allows it.
 if config.will_train_dependency_probe:
     print("Prepping datasets for Dependency parsing")
     train_data_raw = init_tree_corpus(config.path_to_data_train, use_dependencies=True, dep_vocab=corrupted_dep_vocab)

@@ -1,8 +1,11 @@
 import torch
+import numpy as np
 from torch import Tensor
 from tools.tree_tools import get_parent_children_combo_from_tree, parentchild_ids_to_idx, tokentree_to_ete
 from typing import List, Callable, Dict, Tuple
 from conllu import TokenList
+import os
+from collections import defaultdict
 
 get_ids_from_sent: Callable[[TokenList], List[str]] = lambda sent: [word['id'] for word in sent]
 
@@ -51,7 +54,7 @@ def create_dep_parent_gold_distances(
     Input:
         - corpus: list of TokenLists
     Output:
-        List of tuple(gold indices of parent, index of root)
+        List of Tensors(tensor is )
     """
     all_edges: List[Tensor] = []
 
@@ -85,3 +88,18 @@ def create_dep_parent_gold_distances(
         all_edges.append(edges)
 
     return all_edges
+
+def create_corrupted_dep_vocab(corpora: List[TokenList]) -> Dict[str, str]:
+    # Get sentences from all data sets
+    possible_targets_distr = [0, 1, 2]
+
+    corrupted_word_type = defaultdict(lambda: "UNK")
+    # Get a corrupted POS tag for each word
+    for sentence in corpora:
+        for token in sentence:
+            corrupted_behaviour = np.random.choice(possible_targets_distr, 1).item()
+
+            if token['form'] not in corrupted_word_type:
+                corrupted_word_type[token['form']] = corrupted_behaviour
+
+    return corrupted_word_type
