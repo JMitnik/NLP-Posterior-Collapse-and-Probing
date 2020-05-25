@@ -74,7 +74,7 @@ trans_tokenizer = GPT2Tokenizer.from_pretrained(trans_model_type)
 # https://github.com/facebookresearch/colorlessgreenRNNs/blob/master/src/language_models/model.py
 #
 from collections import defaultdict
-from lstm.model import RNNModel
+from models.lstm.model import RNNModel
 import torch
 
 model_location = config.path_to_pretrained_lstm  # <- point this to the location of the Gulordava .pt file
@@ -455,10 +455,7 @@ from skorch.dataset import Dataset
 from skorch.helper import predefined_split
 from skorch.history import History
 
-import importlib
-import results_writer
-importlib.reload(results_writer)
-from results_writer import ResultsWriter
+from tools.results_writer import ResultsWriter
 
 rw = ResultsWriter(config)
 
