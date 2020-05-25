@@ -18,7 +18,8 @@ def make_struct_dataloaders(
     use_dependencies: bool = False,
     use_corrupted: bool = False,
     use_shuffled_dataset: bool = False,
-    corrupted_vocab = None
+    corrupted_vocab = None,
+    verbose: bool = True
 ) -> Tuple[DataLoader, DataLoader]:
     # Make training data-loader
     train_X, train_y = init_tree_corpus(
@@ -43,5 +44,8 @@ def make_struct_dataloaders(
     )
     valid_dataset = ProbingDataset(valid_X, valid_y)
     valid_dataloader = DataLoader(valid_dataset, batch_size=valid_batch_size, shuffle=use_shuffled_dataset, collate_fn=custom_collate_fn)
+
+    if verbose:
+        print(f"Loaded in train dataloader with {len(train_dataloader)} items and valid dataloader with {len(valid_dataloader)}")
 
     return train_dataloader, valid_dataloader

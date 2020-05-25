@@ -39,6 +39,8 @@ from config import Config
 config: Config = Config(
     run_label='full_data',
     uses_sample=False,
+    path_to_data_train='data/en_ewt-ud-train.conllu',
+    path_to_data_valid='data/en_ewt-ud-dev.conllu',
     feature_model_type='LSTM',
     will_train_simple_probe=True,
     will_control_task_simple_prob=False,
@@ -655,7 +657,7 @@ if config.will_control_task_dependency_probe:
         feature_model_tokenizer=w2i,
         use_dependencies=True,
         use_corrupted=True,
-        corrupted=corrupted_dep_vocab
+        corrupted_vocab=corrupted_dep_vocab
     )
 
     print("Starting training for Dependency parsing - Control Task")
