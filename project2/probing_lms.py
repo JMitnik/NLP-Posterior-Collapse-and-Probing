@@ -512,6 +512,7 @@ from tools.tree_tools import tokentree_to_ete, tokentree_to_nltk, edges, create_
 
 
 
+
 # %% [markdown]
 # As you can see we label a token by its token id (converted to a string). Based on these id's we are going to retrieve the node distances.
 #
@@ -582,7 +583,7 @@ if config.will_train_structural_probe:
         feature_model=model,
         feature_model_tokenizer=w2i,
     )
-    
+
     probe, losses, uuas = train_struct(
         train_dataloader,
         valid_dataloader,
@@ -603,28 +604,32 @@ if config.will_train_structural_probe:
 # # Dependency Probing Parent Task
 
 # %% [markdown]
-# In this part of the experimental setup, a different will be considered. To prevent any wrong conclusions based on ill-conceived ideas of control tasks for control tasks, a new task will be considered for this specific purpose. Based on John Hewitt and Percy Liang's work on 'Designing and Interpreting Probes with Control Tasks', this next task will consider a different the task of finding a node's parent, instead of finding all edges. 
+# In this part of the experimental setup, a different will be considered. To prevent any wrong conclusions based on ill-conceived ideas of control tasks for control tasks, a new task will be considered for this specific purpose. Based on John Hewitt and Percy Liang's work on 'Designing and Interpreting Probes with Control Tasks', this next task will consider a different the task of finding a node's parent, instead of finding all edges.
 #
 # This will be treated like a classificiation task, where given N potential nodes, the goal is to predict which of the N nodes is the parent, with Negative Log Likelihood as main loss function.
 
 # %%
+# Initialize results for which we might want to write something
 dep_probe_results = defaultdict(list)
 
 if config.will_train_dependency_probe:
     print("Loading datasets for Dependency parsing")
     train_dataloader, valid_dataloader = make_struct_dataloaders(
-        config.path_to_data_train
+        config.path_to_data_train,
         config.path_to_data_valid,
         feature_model=model,
         feature_model_tokenizer=w2i,
         use_dependencies=True
     )
-    
+
     print("Starting training for Dependency parsing")
     dep_trained_probe, dep_valid_losses, dep_valid_acc = train_dep_parsing(
         train_dataloader,
         valid_dataloader,
-        config,
+        feature_dim=config.feature_model_dimensionality,
+        probe_rank=config.dep_probe_rank,
+        lr=config.dep_probe_lr,
+        nr_epochs=config.dep_probe_train_epoch
     )
 
     # We then store some results
@@ -632,19 +637,38 @@ if config.will_train_dependency_probe:
     dep_probe_results['valid_acc'] = dep_valid_acc
 
 # %%
+from data_tools.data_inits import parse_all_corpora
+from runners.trainers import train_dep_parsing
+
 # Control task time
 if config.will_control_task_dependency_probe:
-    print("Loading datasets for Dependency Probes")
-    
+    # Read all corpora and make a vocab for how to deal with all possible tokens
+    all_corpora = parse_all_corpora(True)
+    corrupted_dep_vocab = create_corrupted_dep_vocab(all_corpora)
+
+    print("Loading datasets for Dependency Probes - Control Task")
+    train_dataloader, valid_dataloader = make_struct_dataloaders(
+        config.path_to_data_train,
+        config.path_to_data_valid,
+        feature_model=model,
+        feature_model_tokenizer=w2i,
+        use_dependencies=True,
+        use_corrupted=True,
+        corrupted=corrupted_dep_vocab
+    )
 
     print("Starting training for Dependency parsing - Control Task")
-    corrupted_dep_trained_probe, corrupted_dep_valid_losses, corrupted_dep_valid_acc = train_dep_parsing(
+    dep_trained_probe, dep_valid_losses, dep_valid_acc = train_dep_parsing(
         train_dataloader,
         valid_dataloader,
-        config
+        feature_dim=config.feature_model_dimensionality,
+        probe_rank=config.dep_probe_rank,
+        lr=config.dep_probe_lr,
+        nr_epochs=config.dep_probe_train_epoch,
     )
 
     dep_probe_results['corrupted_valid_losses'] = corrupted_dep_valid_losses
     dep_probe_results['corrupted_dep_valid_acc'] = corrupted_dep_valid_acc
 
-rw.write_results('dep_edge', config.feature_model_type, '', dep_probe_results)
+if config.will_control_task_dependency_probe or config.will_train_dependency_probe:
+    rw.write_results('dep_edge', config.feature_model_type, '', dep_probe_results)

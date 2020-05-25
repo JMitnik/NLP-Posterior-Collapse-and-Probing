@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 from typing import Tuple, List
 import torch.nn as nn
 from torch.nn import NLLLoss
@@ -11,16 +12,19 @@ from runners.evaluators import evaluate_dep_parsing
 def train_dep_parsing(
     train_dataloader: DataLoader,
     valid_dataloader: DataLoader,
-    config: Config
-)-> Tuple[nn.Module, List[float], List[float]]:
-    emb_dim: int = config.feature_model_dimensionality
-    rank: int = config.struct_probe_rank
-    lr: float = config.struct_probe_lr
-    epochs: int = config.dep_probe_train_epoch
-
+    feature_dim: int,
+    probe_rank: int,
+    lr: float,
+    nr_epochs: int = 30,
+    patience: int = 4
+) -> Tuple[nn.Module, List[float], List[float]]:
+    """
+    Trains dependency parsing probe
+    """
+    # Probing model
     probe: nn.Module = TwoWordBilinearLabelProbe(
-        max_rank=rank,
-        feature_dim=emb_dim,
+        max_rank=probe_rank,
+        feature_dim=feature_dim,
         dropout_p=0.2
     )
 
@@ -28,26 +32,28 @@ def train_dep_parsing(
     optimizer = optim.Adam(probe.parameters(), lr=lr)
     loss_function = NLLLoss(reduction='none')
 
+    # Scores
     valid_losses = []
     acc_scores = []
-    it = 0
+    lowest_loss = np.inf
 
-    for epoch in range(epochs):
+    # Counter
+    it = 0
+    patience_counter = 0
+
+    for epoch in range(nr_epochs):
         print(f"\n---- EPOCH {epoch + 1} ---- \n")
 
         for idx, train_batch in enumerate(train_dataloader):
             it += 1
-            # Setup
             probe.train()
             optimizer.zero_grad()
 
             batch_loss = torch.tensor([0.0])
 
             for train_item in train_batch:
-                train_X, train_y_tup = train_item
-
+                train_X, train_y = train_item
                 train_X = train_X.unsqueeze(0)
-                train_y, _ = train_y_tup
 
                 pred = probe(train_X).squeeze()
 
@@ -77,5 +83,15 @@ def train_dep_parsing(
         valid_loss, acc_score = evaluate_dep_parsing(probe, valid_dataloader)
         acc_scores.append(acc_score.item())
         valid_losses.append(valid_loss.item())
+
+        if valid_loss < lowest_loss:
+            patience_counter = 0
+            valid_loss = lowest_loss
+        elif patience_counter >= patience:
+            print("Started to overfit, patience has been reached")
+            break
+        else:
+            patience_counter += 1
+
 
     return probe, valid_losses, acc_scores

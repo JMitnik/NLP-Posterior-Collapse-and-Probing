@@ -1,3 +1,4 @@
+from runners.trainers.train_dep_parsing import train_dep_parsing
 from data_tools.data_inits import parse_all_corpora
 from runners.trainers.train_struct import train_struct
 import pytest
@@ -46,7 +47,7 @@ def test_dep_dataloader_returns_corrupted_idxs():
         feature_model_tokenizer=transformer_tokenizer,
         use_dependencies=True,
         use_corrupted=True,
-        corruped_vocab=corrupted_dep_vocab
+        corrupted_vocab=corrupted_dep_vocab
     )
 
     # Sample of training
@@ -57,3 +58,61 @@ def test_dep_dataloader_returns_corrupted_idxs():
         for idx, parent_tensor in enumerate(parent_edges):
             parent = parent_tensor.item()
             assert parent == idx or parent==-1 or parent == 0 or parent == len(parent_edges), "Not corrupted labels"
+
+def test_dep_regular_training():
+    path_to_train = 'data/sample/en_ewt-ud-train.conllu'
+    path_to_valid = 'data/sample/en_ewt-ud-dev.conllu'
+    nr_epochs = 3
+
+    transformer, transformer_tokenizer = make_pretrained_transformer_and_tokenizer('distilgpt2')
+
+    train_dataloader, valid_dataloader = make_struct_dataloaders(
+        path_to_train,
+        path_to_valid,
+        feature_model=transformer,
+        feature_model_tokenizer=transformer_tokenizer,
+        use_dependencies=True
+    )
+
+    probe, losses, acc, = train_dep_parsing(
+        train_dataloader,
+        valid_dataloader,
+        768,
+        64,
+        10e-4,
+    )
+
+    assert losses[0] > losses[-1], "Loss did not decrease over the training"
+    assert acc[0] < acc[-1], "Accuracy did not increase over the training"
+
+def test_dep_control_task_training():
+    path_to_train = 'data/sample/en_ewt-ud-train.conllu'
+    path_to_valid = 'data/sample/en_ewt-ud-dev.conllu'
+    nr_epochs = 3
+
+    transformer, transformer_tokenizer = make_pretrained_transformer_and_tokenizer('distilgpt2')
+
+    # Read all corpora and extract into
+    all_corpora = parse_all_corpora(True)
+    corrupted_dep_vocab = create_corrupted_dep_vocab(all_corpora)
+
+    train_dataloader, valid_dataloader = make_struct_dataloaders(
+        path_to_train,
+        path_to_valid,
+        feature_model=transformer,
+        feature_model_tokenizer=transformer_tokenizer,
+        use_dependencies=True,
+        use_corrupted=True,
+        corrupted_vocab=corrupted_dep_vocab
+    )
+
+    probe, losses, acc, = train_dep_parsing(
+        train_dataloader,
+        valid_dataloader,
+        768,
+        64,
+        10e-4,
+    )
+
+    assert losses[0] > losses[-1], "Loss did not decrease over the training"
+    assert acc[0] < acc[-1], "Accuracy did not increase over the training"

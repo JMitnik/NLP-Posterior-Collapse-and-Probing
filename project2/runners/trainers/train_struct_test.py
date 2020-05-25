@@ -48,7 +48,7 @@ def test_train_struct_for_transformer(model):
         feature_model_tokenizer=transformer_tokenizer,
     )
 
-    probe, losses, acc = train_struct(
+    _, losses, acc = train_struct(
         train_dataloader,
         valid_dataloader,
         nr_epochs=nr_epochs,

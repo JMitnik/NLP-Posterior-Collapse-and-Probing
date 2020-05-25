@@ -19,10 +19,8 @@ def evaluate_dep_parsing(probe, data_loader):
     with torch.no_grad():
         for idx, batch_item in enumerate(data_loader):
             for item in batch_item:
-                valid_X, valid_y_tup = item
-
+                valid_X, valid_y = item
                 valid_X = valid_X.unsqueeze(0)
-                valid_y, _ = valid_y_tup
 
                 pred = probe(valid_X).squeeze()
                            # Sentences with strange tokens, we ignore for the moment
