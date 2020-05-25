@@ -30,7 +30,16 @@
 # Their library is well documented, and they provide great tools to easily load in pre-trained models.
 
 # %%
+import torch
 import torch.nn as nn
+from torch.nn.utils.rnn import pad_sequence
+
+from typing import DefaultDict
+from collections import defaultdict
+from data_tools.target_extractors import create_corrupted_dep_vocab, create_struct_gold_distances
+from data_tools.data_inits import parse_all_corpora
+from runners.trainers import train_dep_parsing
+from data_tools.target_extractors import create_corrupted_dep_vocab, create_struct_gold_distances
 
 # %%
 # Custom Configuration|
@@ -42,10 +51,10 @@ config: Config = Config(
     path_to_data_train='data/en_ewt-ud-train.conllu',
     path_to_data_valid='data/en_ewt-ud-dev.conllu',
     feature_model_type='LSTM',
-    will_train_simple_probe=True,
+    will_train_simple_probe=False,
     will_control_task_simple_prob=False,
     will_train_structural_probe=False,
-    will_train_dependency_probe=True,
+    will_train_dependency_probe=False,
     will_control_task_dependency_probe=True,
     struct_probe_train_epoch=100,
     dep_probe_train_epoch=1000,
@@ -55,6 +64,7 @@ config: Config = Config(
 # %%
 # We first load our feature models
 from models.model_inits import make_pretrained_lstm_and_tokenizer
+from transformers import GPT2Model, GPT2Tokenizer
 
 # The Gulordava LSTM model can be found here:
 # https://drive.google.com/open?id=1w47WsZcZzPyBKDn83cMNd0Hb336e-_Sy
@@ -141,7 +151,7 @@ def assert_sen_reps(transformer_model, transformer_tokenizer, lstm_model, lstm_t
 
     print('Passed basic checks!')
 
-assert_sen_reps(trans_model, trans_tokenizer, lstm, vocab)
+assert_sen_reps(trans_model, trans_tokenizer, lstm, lstm_vocab)
 
 # %%
 # 🏁
@@ -189,7 +199,7 @@ if config.feature_model_type == 'LSTM':
     model = lstm
     model_name = 'LSTM'
     config.feature_model_dimensionality = 650
-    w2i = vocab
+    w2i = lstm_vocab
 else:
     print(f"Important: We will use {config.feature_model_type} as our model representation")
     config.feature_model_dimensionality = 768
@@ -541,11 +551,11 @@ sample_sent = corpus[5]
 # Convert sentence to tree
 sample_tokentree = sample_sent.to_tree()
 sample_ete3_tree = tokentree_to_ete(sample_tokentree)
-print(ete3_tree, '\n')
+print(sample_ete3_tree, '\n')
 
 # Extract gold-distance from sentence
 sample_gold_distance = create_struct_gold_distances([sample_sent])[0]
-print(gold_distance, '\n')
+print(sample_gold_distance, '\n')
 
 # Transform gold-distance to minimum spanning tree
 sample_mst = create_mst(sample_gold_distance)
@@ -591,7 +601,7 @@ if config.will_train_structural_probe:
         train_dataloader,
         valid_dataloader,
         nr_epochs=config.struct_probe_train_epoch,
-        struct_emb_dim=embedding_size,
+        struct_emb_dim=config.feature_model_dimensionality,
         struct_lr=config.struct_probe_lr,
         struct_rank=config.struct_probe_rank,
     )
@@ -642,6 +652,7 @@ if config.will_train_dependency_probe:
 # %%
 from data_tools.data_inits import parse_all_corpora
 from runners.trainers import train_dep_parsing
+from data_tools.target_extractors import create_corrupted_dep_vocab, create_struct_gold_distances
 
 # Control task time
 if config.will_control_task_dependency_probe:
@@ -670,10 +681,8 @@ if config.will_control_task_dependency_probe:
         nr_epochs=config.dep_probe_train_epoch,
     )
 
-    dep_probe_results['corrupted_valid_losses'] = corrupted_dep_valid_losses
-    dep_probe_results['corrupted_dep_valid_acc'] = corrupted_dep_valid_acc
+    dep_probe_results['corrupted_valid_losses'] = dep_valid_losses
+    dep_probe_results['corrupted_dep_valid_acc'] = dep_valid_acc
 
 if config.will_control_task_dependency_probe or config.will_train_dependency_probe:
     rw.write_results('dep_edge', config.feature_model_type, '', dep_probe_results)
-
-# %%
