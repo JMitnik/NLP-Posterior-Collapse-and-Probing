@@ -34,6 +34,7 @@ import torch
 import torch.nn as nn
 from torch.nn.utils.rnn import pad_sequence
 
+from tools import utils
 from typing import DefaultDict
 from collections import defaultdict
 from data_tools.target_extractors import create_corrupted_dep_vocab, create_struct_gold_distances
@@ -47,21 +48,21 @@ from config import Config
 
 sample_config: Config = Config(
     run_label='sample_data',
-    uses_sample=False,
+    uses_sample=True,
     path_to_data_train='data/sample/en_ewt-ud-train.conllu',
     path_to_data_valid='data/sample/en_ewt-ud-dev.conllu',
     feature_model_type='LSTM',
-    will_train_simple_probe=True,
-    will_control_task_simple_prob=False,
-    will_train_structural_probe=False,
-    will_train_dependency_probe=False,
+    will_train_simple_probe=False,
+    will_control_task_simple_prob=True,
+    will_train_structural_probe=True,
+    will_train_dependency_probe=True,
     will_control_task_dependency_probe=True,
     struct_probe_train_epoch=100,
     dep_probe_train_epoch=1000,
     struct_probe_lr=0.001
 )
-    
-    
+
+
 full_config: Config = Config(
     run_label='full_data',
     uses_sample=False,
@@ -77,8 +78,14 @@ full_config: Config = Config(
     dep_probe_train_epoch=1000,
     struct_probe_lr=0.001
 )
-    
+
 config = sample_config
+
+if 'sample' in config.path_to_data_train:
+    print("Will train on sample data!")
+
+if 'sample' in config.path_to_data_valid:
+    print("Will validate on sample data!")
 
 # %%
 # We first load our feature models
@@ -327,6 +334,7 @@ early_stopping = EarlyStopping(monitor='valid_acc',
 callbacks = [train_acc, early_stopping]
 
 if config.will_train_simple_probe:
+    print("-- Training: Simple POS Probe --")
     train_data_X, train_data_y, train_vocab = create_data(
         os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-train.conllu'),
         model,
@@ -374,12 +382,12 @@ if config.will_train_simple_probe:
     )
 
     net.fit(train_X, train_y)
-    
+
     utils.save_model(
         f'storage/saved_models/pos_probes/{config.run_label}_{config.feature_model_type}_pos_probe.pt',
         net.module
     )
-    
+
     print('Done Training Probe')
 
     # Get accuracy score
@@ -394,15 +402,16 @@ if config.will_train_simple_probe:
     pos_probe_results['validation_losses'] = validation_losses
     pos_probe_results['validation_accs'] = validation_accs
 
+    utils.save_model(
+        f'storage/saved_models/pos_probes/{config.run_label}_{config.feature_model_type}_POS_probe.pt',
+        net.module
+    )
 
 # %%
-utils.save_model(
-    f'storage/saved_models/pos_probes/{config.run_label}_{config.feature_model_type}_pos_probe.pt',
-    net.module
-)
 
 # %% Train a corrupted prob classifier
 if config.will_control_task_simple_prob:
+    print("-- Training: Corrupted Simple POS Probe --")
     corrupted_pos_tags: Dict[str, str] = create_corrupted_tokens(use_sample)
     corrupted_train_data_X, corrupted_train_data_y, corrupted_train_vocab = create_data(
         os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-train.conllu'),
@@ -465,9 +474,9 @@ if config.will_control_task_simple_prob:
     corrupted_validation_accs = corrupted_history[:,'valid_acc']
     pos_probe_results['corrupted_validation_losses'] = corrupted_validation_losses
     pos_probe_results['corrupted_validation_accs'] = corrupted_validation_accs
-    
+
     utils.save_model(
-        f'storage/saved_models/pos_probes/{config.run_label}_{config.feature_model_type}_corrupted_struct_probe.pt',
+        f'storage/saved_models/pos_probes/{config.run_label}_{config.feature_model_type}_corrupted_POS_probe.pt',
         corrupted_net.module
     )
 
@@ -590,6 +599,8 @@ from data_tools.dataloaders import make_struct_dataloaders
 
 # We will train the structural probe if `config.will_train_structural_probe` allows it.
 if config.will_train_structural_probe:
+    print("-- Training: Structural Probe --")
+
     print("Loading in data for structural probe!")
     train_dataloader, valid_dataloader = make_struct_dataloaders(
         path_to_train=config.path_to_data_train,
@@ -611,7 +622,7 @@ if config.will_train_structural_probe:
         'probe_valid_losses': losses,
         'probe_valid_uuas_scores': uuas
     }
-    
+
     utils.save_model(
         f'storage/saved_models/struct_probes/{config.run_label}_{config.feature_model_type}_struct_probe.pt',
         struct_probe
@@ -629,9 +640,11 @@ if config.will_train_structural_probe:
 
 # %%
 # Initialize results for which we might want to write something
-# dep_probe_results = defaultdict(list)
+dep_probe_results = defaultdict(list)
 
 if config.will_train_dependency_probe:
+    print("-- Training: Dependency Probe --")
+
     print("Loading datasets for Dependency parsing")
     train_dataloader, valid_dataloader = make_struct_dataloaders(
         config.path_to_data_train,
@@ -654,12 +667,12 @@ if config.will_train_dependency_probe:
     # We then store some results
     dep_probe_results['valid_losses'] = dep_valid_losses
     dep_probe_results['valid_acc'] = dep_valid_acc
-    
+
     utils.save_model(
         f'storage/saved_models/dep_edge_probes/{config.run_label}_{config.feature_model_type}_dep_edge_probe.pt',
-        dep_control_trained_probe
+        dep_trained_probe
     )
-    
+
 
 # %%
 from data_tools.data_inits import parse_all_corpora
@@ -668,6 +681,8 @@ from data_tools.target_extractors import create_corrupted_dep_vocab, create_stru
 
 # Control task time
 if config.will_control_task_dependency_probe:
+    print("-- Training: Dependency Control task Probe --")
+
     # Read all corpora and make a vocab for how to deal with all possible tokens
     all_corpora = parse_all_corpora(True)
     corrupted_dep_vocab = create_corrupted_dep_vocab(all_corpora)
@@ -695,7 +710,7 @@ if config.will_control_task_dependency_probe:
 
     dep_probe_results['corrupted_valid_losses'] = dep_valid_losses
     dep_probe_results['corrupted_dep_valid_acc'] = dep_valid_acc
-    
+
     utils.save_model(
         f'storage/saved_models/dep_edge_probes/{config.run_label}_{config.feature_model_type}_dep_edge_control_probe.pt',
         dep_control_trained_probe
