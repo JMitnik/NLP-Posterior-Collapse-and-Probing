@@ -93,7 +93,7 @@ def create_corrupted_dep_vocab(corpora: List[TokenList]) -> Dict[str, str]:
     # Get sentences from all data sets
     possible_targets_distr = [0, 1, 2]
 
-    corrupted_word_type = defaultdict(lambda: "UNK")
+    corrupted_word_type = defaultdict(lambda: 0)
     # Get a corrupted POS tag for each word
     for sentence in corpora:
         for token in sentence:

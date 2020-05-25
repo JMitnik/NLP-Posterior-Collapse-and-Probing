@@ -262,9 +262,6 @@ def create_corrupted_tokens(use_sample: bool) -> Dict[str, str]:
 
     return corrupted_word_type
 
- # Get out corrupted pos tokens for each word type
-corrupted_pos_tags: Dict[str, str] = create_corrupted_tokens(use_sample)
-
 # %%
 # Utility functions for transforming X and y to appropriate formats
 def transform_XY_to_concat_tensors(X: List[Tensor], y: List[Tensor]) -> Tuple[Tensor, Tensor]:
@@ -388,6 +385,7 @@ if config.will_train_simple_probe:
 
 # %% Train a corrupted prob classifier
 if config.will_control_task_simple_prob:
+    corrupted_pos_tags: Dict[str, str] = create_corrupted_tokens(use_sample)
     corrupted_train_data_X, corrupted_train_data_y, corrupted_train_vocab = create_data(
         os.path.join('data', 'sample' if use_sample else '', 'en_ewt-ud-train.conllu'),
         model,
@@ -459,25 +457,8 @@ import seaborn as sns
 import pandas as pd
 import matplotlib.pyplot as plt
 
-try:
-    trans_result_df = pd.read_csv('results/POS_probe/Transformer.csv')
-    trans_result_df = trans_result_df.rename(columns={'validation_accs':'Trans Val Accs', 'c_validation_accs':'Corr Trans Val Accs'})
-    ax1 = sns.lineplot(data=trans_result_df[['Trans Val Accs', 'Corr Trans Val Accs']], alpha=0.7)
-except:
-    print("Probably cant read file Transformer.csv")
-
-try:
-    lstm_result_df = pd.read_csv('results/POS_probe/LSTM.csv')
-    lstm_result_df = lstm_result_df.rename(columns={'validation_accs':'LSTM Val Accs', 'c_validation_accs':'Corr LSTM Val Accs'})
-    ax2 = sns.lineplot(data=lstm_result_df[['LSTM Val Accs', 'Corr LSTM Val Accs']], alpha=0.7)
-except:
-    print("Probably cant read the LSTM.csv")
-
 sns.set_palette(sns.color_palette("BuGn_r"))
 sns.set_palette(sns.light_palette("navy", reverse=True))
-
-plt.xlabel('epochs')
-plt.ylabel('accuracy')
 
 # %%
 
