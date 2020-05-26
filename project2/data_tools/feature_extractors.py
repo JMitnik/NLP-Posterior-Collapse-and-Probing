@@ -69,9 +69,16 @@ def fetch_sen_repr_transformer(corpus: List[TokenList], trans_model, tokenizer) 
             if len(inp.shape) == 1:
                 inp = inp.unsqueeze(0)
 
-            out = trans_model(inp)
-
-        h_states = out[0]
+            try:
+                out = trans_model(inp)
+                h_states = out[0]
+            except Exception as e:
+                print("Input sequence is too long now")
+                p1 = inp[:, :512]
+                p2 = inp[:, 512:]
+                h_states1 = trans_model(p1)[0]
+                h_states2 = trans_model(p2)[0]
+                h_states = torch.cat((h_states1, h_states2), 1)
 
         if len(h_states.shape) == 3:
             h_states = h_states.squeeze(0)

@@ -1,5 +1,5 @@
-from data_tools.target_extractors import create_dep_parent_gold_distances, create_struct_gold_distances
-from typing import List
+from data_tools.target_extractors import create_dep_parent_gold_distances, create_struct_gold_distances, fetch_pos_tags
+from typing import List, Dict, Optional
 import os
 from torch import Tensor
 from conllu import TokenList, parse_incr
@@ -23,6 +23,29 @@ def parse_all_corpora(use_sample):
         ud_parses += (parse_corpus(filename))
 
     return ud_parses
+
+def init_pos_data(
+    filename: str,
+    model,
+    w2i: Dict[str, int],
+    pos_vocab=None,
+    corrupted=False,
+    corrupted_pos_tags: Optional[Dict[str, str]] = None
+):
+    print('Parsing the corpus')
+    ud_parses = parse_corpus(filename)
+
+    print('Fetching the POS tags')
+    pos_tags, pos_vocab = fetch_pos_tags(
+        ud_parses,
+        pos_vocab=pos_vocab,
+        corrupted=corrupted,
+        corrupted_pos_tags=corrupted_pos_tags
+    )
+    print(f'Fetching sen reps using {type(model).__name__} in `create_data`')
+    sen_reps = fetch_sen_reps(ud_parses, model, w2i)
+
+    return sen_reps, pos_tags, pos_vocab
 
 def init_tree_corpus(
     path,

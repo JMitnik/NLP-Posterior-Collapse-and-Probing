@@ -8,6 +8,29 @@ from typing import List, Tuple
 def custom_collate_fn(items: List[Tensor]) -> List[Tensor]:
     return items
 
+def make_struct_dataloader(
+    path_to_eval,
+    feature_model,
+    feature_model_tokenizer,
+    use_dependencies: bool = False,
+    use_corrupted: bool = False,
+    use_shuffled_dataset: bool = False,
+    corrupted_vocab = None,
+    verbose: bool = True
+):
+    eval_X, eval_y = init_tree_corpus(
+        path_to_eval,
+        feature_model,
+        feature_tokenizer=feature_model_tokenizer,
+        use_dependencies=use_dependencies,
+        use_corrupted=use_corrupted,
+        dep_vocab=corrupted_vocab
+    )
+    eval_dataset = ProbingDataset(eval_X, eval_y)
+    eval_dataloader = DataLoader(eval_dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
+
+    return eval_dataloader
+
 def make_struct_dataloaders(
     path_to_train,
     path_to_valid,

@@ -2,12 +2,47 @@ import torch
 import numpy as np
 from torch import Tensor
 from tools.tree_tools import get_parent_children_combo_from_tree, parentchild_ids_to_idx, tokentree_to_ete
-from typing import List, Callable, Dict, Tuple
+from typing import List, Callable, Dict, Tuple, Optional, DefaultDict
 from conllu import TokenList
 import os
 from collections import defaultdict
 
 get_ids_from_sent: Callable[[TokenList], List[str]] = lambda sent: [word['id'] for word in sent]
+get_pos_from_sent: Callable[[TokenList], List[str]] = lambda sent: [word['upostag'] for word in sent]
+get_tokens_from_sent: Callable[[TokenList], List[str]] = lambda sent: [word['form'] for word in sent]
+
+def fetch_pos_tags(
+    ud_parses: List[TokenList],
+    pos_vocab: Optional[DefaultDict[str, int]] = None,
+    corrupted=False,
+    corrupted_pos_tags: Optional[Dict[str, str]] = None
+)-> Tuple[List[Tensor], DefaultDict]:
+    """
+    Converts `ud_parses` into a tensor of POS tags.
+    """
+    # If `pos_vocab` is not known, make one based on all POS tokens in `ud_parses`
+    if (pos_vocab is None):
+        print('get all tokens')
+        all_pos_tokens = set([pos for sent in ud_parses for pos in get_pos_from_sent(sent)])
+        print('get all pos2i')
+        pos2i: dict = {'<pad>': 0, '<unk>': 1, **{pos.strip(): i + 2 for i, pos in enumerate(all_pos_tokens)}}
+        pos_vocab = defaultdict(lambda: pos2i["<unk>"])
+        pos_vocab.update(pos2i)
+
+    pos_tokens_result: List[Tensor] = []
+    sent: TokenList
+
+    for sent in ud_parses:
+        # If corrupted, let the target value be the corrupted tokens
+        if corrupted:
+            pos_tokens = torch.tensor([pos_vocab[corrupted_pos_tags[word]] for word in get_tokens_from_sent(sent)])
+        else:
+            pos_tokens = torch.tensor([pos_vocab[pos] for pos in get_pos_from_sent(sent)])
+        pos_tokens_result.append(pos_tokens)
+
+
+    return pos_tokens_result, pos_vocab
+
 
 def create_struct_gold_distances(corpus) -> List[Tensor]:
     """

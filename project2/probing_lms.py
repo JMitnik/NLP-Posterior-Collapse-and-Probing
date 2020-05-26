@@ -52,9 +52,9 @@ sample_config: Config = Config(
     uses_sample=True,
     path_to_data_train='data/sample/en_ewt-ud-train.conllu',
     path_to_data_valid='data/sample/en_ewt-ud-dev.conllu',
-    feature_model_type=ARGS.feature_model_type or 'LSTM',
-    will_train_simple_probe=False,
-    will_control_task_simple_prob=False,
+    feature_model_type=ARGS.feature_model_type or 'distilgpt2',
+    will_train_simple_probe=True,
+    will_control_task_simple_prob=True,
     will_train_structural_probe=True,
     will_train_dependency_probe=False,
     will_control_task_dependency_probe=False,
@@ -68,7 +68,7 @@ full_config: Config = Config(
     uses_sample=False,
     path_to_data_train='data/en_ewt-ud-train.conllu',
     path_to_data_valid='data/en_ewt-ud-dev.conllu',
-    feature_model_type='LSTM',
+    feature_model_type=ARGS.feature_model_type or 'xlm-roberta-base',
     will_train_simple_probe=True,
     will_control_task_simple_prob=True,
     will_train_structural_probe=True,
@@ -79,7 +79,7 @@ full_config: Config = Config(
     struct_probe_lr=0.001
 )
 
-config = full_config
+config = sample_config
 
 print(f'Running config with label {config.run_label}!')
 
@@ -92,7 +92,7 @@ if 'sample' in config.path_to_data_valid:
 # %%
 # We first load our feature models
 from models.model_inits import make_pretrained_lstm_and_tokenizer
-from transformers import GPT2Model, GPT2Tokenizer
+from transformers import GPT2Model, GPT2Tokenizer, XLMRobertaModel, XLMRobertaTokenizer
 
 # The Gulordava LSTM model can be found here:
 # https://drive.google.com/open?id=1w47WsZcZzPyBKDn83cMNd0Hb336e-_Sy
@@ -102,8 +102,13 @@ lstm, lstm_vocab = make_pretrained_lstm_and_tokenizer()
 
 # Initializing the Transformer
 trans_model_type: str = config.feature_model_type if config.feature_model_type is not 'LSTM' else config.default_trans_model_type
-trans_model = GPT2Model.from_pretrained(trans_model_type)
-trans_tokenizer = GPT2Tokenizer.from_pretrained(trans_model_type)
+
+if 'distilgpt2' in trans_model_type:
+    trans_model = GPT2Model.from_pretrained(trans_model_type)
+    trans_tokenizer = GPT2Tokenizer.from_pretrained(trans_model_type)
+elif 'xlm-roberta-base' in trans_model_type:
+    trans_model = XLMRobertaModel.from_pretrained(trans_model_type)
+    trans_tokenizer = XLMRobertaTokenizer.from_pretrained(trans_model_type)
 
 # %% [markdown]
 # # Data
@@ -179,10 +184,11 @@ def assert_sen_reps(transformer_model, transformer_tokenizer, lstm_model, lstm_t
 
     print('Passed basic checks!')
 
-assert_sen_reps(trans_model, trans_tokenizer, lstm, lstm_vocab)
+# assert_sen_reps(trans_model, trans_tokenizer, lstm, lstm_vocab)
 
 # %%
 # 🏁
+from torch import Tensor
 from typing import Tuple
 
 def fetch_pos_tags(ud_parses: List[TokenList],
@@ -309,6 +315,8 @@ def create_corrupted_tokens(use_sample: bool) -> Dict[str, str]:
 # %reload_ext autoreload
 # %autoreload 2
 from models.probes import SimpleProbe
+from data_tools.target_extractors import fetch_pos_tags
+from data_tools.feature_extractors import fetch_sen_reps
 
 from skorch import NeuralNetClassifier
 from skorch.callbacks import EpochScoring, Checkpoint, TrainEndCheckpoint, LoadInitState, EarlyStopping
@@ -385,10 +393,9 @@ if config.will_train_simple_probe:
 
     net.fit(train_X, train_y)
 
-    utils.save_model(
-        f'storage/saved_models/pos_probes/{config.run_label}_{config.feature_model_type}_pos_probe.pt',
-        net.module
-    )
+    path_to_model = f'storage/saved_models/pos_probes/{config.run_label}_{config.feature_model_type}_pos_probe'
+    utils.save_model(f'{path_to_model}.pt', net.module)
+    utils.save_vocab(f'{path_to_model}_vocab.p', train_vocab)
 
     print('Done Training Probe')
 
@@ -404,12 +411,6 @@ if config.will_train_simple_probe:
     pos_probe_results['validation_losses'] = validation_losses
     pos_probe_results['validation_accs'] = validation_accs
 
-    utils.save_model(
-        f'storage/saved_models/pos_probes/{config.run_label}_{config.feature_model_type}_POS_probe.pt',
-        net.module
-    )
-
-# %%
 
 # %% Train a corrupted prob classifier
 if config.will_control_task_simple_prob:
@@ -476,11 +477,11 @@ if config.will_control_task_simple_prob:
     corrupted_validation_accs = corrupted_history[:,'valid_acc']
     pos_probe_results['corrupted_validation_losses'] = corrupted_validation_losses
     pos_probe_results['corrupted_validation_accs'] = corrupted_validation_accs
-
-    utils.save_model(
-        f'storage/saved_models/pos_probes/{config.run_label}_{config.feature_model_type}_corrupted_POS_probe.pt',
-        corrupted_net.module
-    )
+    
+    path_to_model = f'storage/saved_models/pos_probes/{config.run_label}_{config.feature_model_type}_corrupted_POS_probe'
+    utils.save_vocab(f'{path_to_model}_vocab.p', train_vocab)
+    utils.save_vocab(f'{path_to_model}_pos_tags.p', corrupted_pos_tags)
+    utils.save_model(f'{path_to_model}.pt', corrupted_net.module)
 
 # Now write results at the end of the POS
 if config.will_train_simple_probe or config.will_control_task_simple_prob:
@@ -678,6 +679,7 @@ if config.will_train_dependency_probe:
 
 # %%
 from data_tools.data_inits import parse_all_corpora
+from data_tools.dataloaders import make_struct_dataloaders
 from runners.trainers import train_dep_parsing
 from data_tools.target_extractors import create_corrupted_dep_vocab, create_struct_gold_distances
 
@@ -709,14 +711,14 @@ if config.will_control_task_dependency_probe:
         lr=config.dep_probe_lr,
         nr_epochs=config.dep_probe_train_epoch,
     )
+    
+    path_to_model = f'storage/saved_models/dep_edge_probes/{config.run_label}_{config.feature_model_type}_dep_edge_control_probe'
+    utils.save_model(f'{path_to_model}.pt', dep_control_trained_probe)
+    utils.save_vocab(f'{path_to_model}_corrupted_dep_vocab.p', corrupted_dep_vocab)
 
     dep_probe_results['corrupted_valid_losses'] = dep_valid_losses
     dep_probe_results['corrupted_dep_valid_acc'] = dep_valid_acc
 
-    utils.save_model(
-        f'storage/saved_models/dep_edge_probes/{config.run_label}_{config.feature_model_type}_dep_edge_control_probe.pt',
-        dep_control_trained_probe
-    )
 
 
 # %%
@@ -725,3 +727,109 @@ if config.will_control_task_dependency_probe or config.will_train_dependency_pro
 
 # %%
 from tools import utils
+
+# %% [markdown]
+# # Testing and Inference
+
+# %%
+import torch
+
+from data_tools.data_inits import init_pos_data
+from data_tools.dataloaders import make_struct_dataloader
+from data_tools.transforms import transform_XY_to_concat_tensors
+from data_tools.datasets import ProbingDataset
+
+from models.probes import SimpleProbe
+from models.model_inits import make_pretrained_lstm_and_tokenizer, make_pretrained_transformer_and_tokenizer
+from tools import utils
+
+# %%
+from config import Config
+
+config: Config = Config(
+    run_label='full_run_monday',
+    uses_sample=False,
+    path_to_data_train='data/en_ewt-ud-train.conllu',
+    path_to_data_valid='data/en_ewt-ud-dev.conllu',
+    path_to_data_test='data/en_ewt-ud-test.conllu',
+    feature_model_type='xlm-roberta-base',
+    will_train_simple_probe=True,
+    will_control_task_simple_prob=True,
+    will_train_structural_probe=True,
+    will_train_dependency_probe=True,
+    will_control_task_dependency_probe=True,
+    struct_probe_train_epoch=100,
+    dep_probe_train_epoch=1000,
+    struct_probe_lr=0.001
+)
+
+
+# %%
+# Load the appropriate feature-models
+distilgpt2, distilgpt2_tokenizer = make_pretrained_transformer_and_tokenizer('distilgpt2')
+xlmroberta, xlmroberta_tokenizer = make_pretrained_transformer_and_tokenizer('xlm-roberta-base')
+lstm, lstm_tokenizer = make_pretrained_lstm_and_tokenizer()
+
+# %%
+# Load the appropriate probing-models
+path_to_lstm_POS_probe = 'storage/saved_models/pos_probes/full_run_monday_LSTM_pos_probe.pt'
+path_to_distilgpt2_POS_probe = 'storage/saved_models/pos_probes/full_run_monday_distilgpt2_pos_probe.pt'
+# TODO: Add XLM Roberta
+
+POS_lstm_probe = SimpleProbe(
+    650,
+    19
+)
+
+POS_distilgpt2_probe = SimpleProbe(
+    768,
+    19
+)
+utils.load_model(path_to_lstm_POS_probe, POS_lstm_probe)
+# utils.load_model(path_to_distilgpt2_POS_probe, POS_distilgpt2_probe)
+
+# %%
+POS_pairs = [
+    ('distilgpt2', distilgpt2, distilgpt2_tokenizer, POS_distilgpt2_probe),
+    ('lstm', lstm, lstm_tokenizer, POS_lstm_probe)
+]
+
+# %%
+for pair in POS_pairs:
+    feature_name, feature_model, feature_model_tokenizer, probe = pair
+
+    eval_reps, eval_pos_tags, eval_pos_vocab = init_pos_data(
+        config.path_to_data_test,
+        feature_model,
+        feature_model_tokenizer,
+    )
+
+# %%
+len(eval_reps)
+
+# %%
+from data_tools.dataloaders import custom_collate_fn
+from torch.utils.data import DataLoader
+eval_X, eval_y = transform_XY_to_concat_tensors(eval_reps, eval_pos_tags)
+eval_dataset = ProbingDataset(eval_X, eval_y)
+eval_dataloader = DataLoader(eval_dataset, collate_fn=custom_collate_fn)
+
+# %%
+preds = []
+
+for batch in eval_dataloader:
+    probe.eval()
+
+    with torch.no_grad():
+        for item in batch:
+            X, y = item
+
+            X = X.unsqueeze(0)
+            pred = probe(X).squeeze(0)
+            pred_item = pred.argmax()
+            preds.append((pred_item.item(), y.item()))
+
+# %%
+preds[9]
+
+# %%

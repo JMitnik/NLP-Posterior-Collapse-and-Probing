@@ -1,4 +1,5 @@
 import os
+import pickle
 import torch
 
 def ensure_path(path_to_file):
@@ -10,3 +11,14 @@ def save_model(path_to_file, model):
 
 def load_model(path_to_file, model):
     model.load_state_dict(torch.load(path_to_file))
+
+def save_vocab(path_to_file, vocab):
+    ensure_path(path_to_file)
+    vocab.default_factory = None
+    pickle.dump(vocab, open(path_to_file, 'wb'))
+
+def load_vocab(path_to_file):
+    vocab = pickle.load(open(path_to_file, 'rb'))
+    vocab.default_factory = lambda: 1
+
+    return vocab
